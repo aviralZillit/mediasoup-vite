@@ -140,7 +140,8 @@ else
 fi
 
 # Run the Docker container
-docker run \
+# Prepare Docker command as a string for debugging purposes
+docker_command="docker run \
     --name=mediasoup-demo \
     -p ${PROTOO_LISTEN_PORT}:${PROTOO_LISTEN_PORT}/tcp \
     -p ${MEDIASOUP_MIN_PORT}-${MEDIASOUP_MAX_PORT}:${MEDIASOUP_MIN_PORT}-${MEDIASOUP_MAX_PORT}/udp \
@@ -148,18 +149,25 @@ docker run \
     -v ${PWD}:/storage \
     -v ${MEDIASOUP_SRC}:/mediasoup-src \
     -v ${ABS_CERTS_DIR}:/certs \
-    -e DEBUG \
-    -e INTERACTIVE \
-    -e DOMAIN \
-    -e PROTOO_LISTEN_PORT \
+    -e DEBUG=\"${DEBUG}\" \
+    -e INTERACTIVE=\"${INTERACTIVE}\" \
+    -e DOMAIN=\"${DOMAIN}\" \
+    -e PROTOO_LISTEN_PORT=\"${PROTOO_LISTEN_PORT}\" \
     -e HTTPS_CERT_FULLCHAIN=/certs/fullchain.pem \
     -e HTTPS_CERT_PRIVKEY=/certs/privkey.pem \
-    -e MEDIASOUP_LISTEN_IP \
-    -e MEDIASOUP_ANNOUNCED_IP \
-    -e MEDIASOUP_MIN_PORT \
-    -e MEDIASOUP_MAX_PORT \
-    -e MEDIASOUP_USE_VALGRIND \
-    -e MEDIASOUP_VALGRIND_OPTIONS \
-    -e MEDIASOUP_WORKER_BIN \
+    -e MEDIASOUP_LISTEN_IP=\"${MEDIASOUP_LISTEN_IP}\" \
+    -e MEDIASOUP_ANNOUNCED_IP=\"${MEDIASOUP_ANNOUNCED_IP}\" \
+    -e MEDIASOUP_MIN_PORT=\"${MEDIASOUP_MIN_PORT}\" \
+    -e MEDIASOUP_MAX_PORT=\"${MEDIASOUP_MAX_PORT}\" \
+    -e MEDIASOUP_USE_VALGRIND=\"${MEDIASOUP_USE_VALGRIND}\" \
+    -e MEDIASOUP_VALGRIND_OPTIONS=\"${MEDIASOUP_VALGRIND_OPTIONS}\" \
+    -e MEDIASOUP_WORKER_BIN=\"${MEDIASOUP_WORKER_BIN}\" \
     -it --rm \
-    mediasoup-demo:latest
+    mediasoup-demo:latest"
+
+# Print the dynamically constructed Docker command for debugging
+log_info "Docker command to be executed:"
+echo "${docker_command}"
+
+# Execute the Docker command
+eval "${docker_command}"

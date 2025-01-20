@@ -159,10 +159,10 @@ async function runMediasoupWorkers()
 async function createExpressApp()
 {
 	logger.info('creating Express app...');
-
 	expressApp = express();
-
 	expressApp.use(bodyParser.json());
+	// Health Check Route
+	expressApp.get('/health', (req, res) => { res.status(200).json({ message: 'ok' }); });
 
 	/**
 	 * For every API request, verify that the roomId in the path matches and
@@ -459,6 +459,7 @@ async function runHttpsServer()
 		cert : fs.readFileSync(config.https.tls.cert),
 		key  : fs.readFileSync(config.https.tls.key)
 	};
+
 	if (!tls)
 	{
 		logger.info('no tls provided in config, fallback to HTTP...');
@@ -466,11 +467,17 @@ async function runHttpsServer()
 
 	httpsServer = tls ? https.createServer(tls, expressApp) : http.createServer(expressApp);
 
+	const listenIp = config.https.listenIp || '0.0.0.0';
+	const listenPort = Number(config.https.listenPort || 3000);
+
 	await new Promise((resolve) =>
 	{
 		httpsServer.listen(
 			Number(config.https.listenPort), config.https.listenIp, resolve);
 	});
+	const protocol = tls ? 'https' : 'http';
+
+	logger.info(`Server is running at ${protocol}://${listenIp}:${listenPort}`);
 }
 
 /**
