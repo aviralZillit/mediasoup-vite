@@ -1632,6 +1632,56 @@ class Room extends EventEmitter
 				break;
 			}
 
+			case 'raiseHand':
+			{
+				// Ensure the Peer is joined.
+				if (!peer.data.joined)
+					throw new Error('Peer not yet joined');
+
+				// Mark the peer as having raised their hand.
+				peer.data.raisedHand = true;
+
+				// Notify other joined Peers.
+				for (const otherPeer of this._getJoinedPeers({ excludePeer: peer }))
+				{
+					otherPeer.notify(
+						'peerRaisedHand',
+						{
+							peerId      : peer.id,
+							displayName : peer.data.displayName
+						})
+						.catch(() => {});
+				}
+
+				accept();
+				break;
+			}
+
+			case 'lowerHand':
+			{
+				// Ensure the Peer is joined.
+				if (!peer.data.joined)
+					throw new Error('Peer not yet joined');
+
+				// Mark the peer as having lowered their hand.
+				peer.data.raisedHand = false;
+
+				// Notify other joined Peers.
+				for (const otherPeer of this._getJoinedPeers({ excludePeer: peer }))
+				{
+					otherPeer.notify(
+						'peerLoweredHand',
+						{
+							peerId      : peer.id,
+							displayName : peer.data.displayName
+						})
+						.catch(() => {});
+				}
+
+				accept();
+				break;
+			}
+
 			default:
 			{
 				logger.error('unknown request.method "%s"', request.method);
