@@ -46,7 +46,7 @@ This document outlines the architecture and implementation of a **calling system
 5. If no response within **30 seconds**, the call is **automatically canceled**.
 
 ### **3. Call Connection**
-1. Both clients **exchange WebRTC credentials** via **Signaling Server**.
+1. Both clients **exchange WebRTC credentials** via **Mediasoup Signaling Server**.
 2. Clients **join the Mediasoup room** and start media streaming.
 3. The Mediasoup **router handles video/audio transmission**.
 
