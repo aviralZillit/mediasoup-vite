@@ -10,6 +10,7 @@ console.log('process.env.DEBUG:', process.env.DEBUG);
 console.log('config.js:\n%s', JSON.stringify(config, null, '  '));
 /* eslint-enable no-console */
 
+const mongoose = require('mongoose');
 const fs = require('fs');
 const https = require('https');
 const http = require('http');
@@ -24,6 +25,9 @@ const utils = require('./lib/utils');
 const Room = require('./lib/Room');
 const interactiveServer = require('./lib/interactiveServer');
 const interactiveClient = require('./lib/interactiveClient');
+
+// Load environment variables
+require('dotenv').config();
 
 const logger = new Logger();
 
@@ -55,8 +59,28 @@ const mediasoupWorkers = [];
 // @type {Number}
 let nextMediasoupWorkerIdx = 0;
 
-run();
+// Connect to MongoDB first, then start Mediasoup Server
+connectDB().then(run);
 
+// MongoDB Connection Function
+async function connectDB() 
+{
+	try 
+	{
+		const mongoURI = process.env.MONGO_URI || '';
+
+		await mongoose.connect(mongoURI);
+
+		// eslint-disable-next-line no-console
+		console.log('✅ MongoDB connected successfully');
+	}
+	catch (error) 
+	{
+		// eslint-disable-next-line no-console
+		console.error('❌ MongoDB connection error:', error);
+		process.exit(1); // Exit if DB connection fails
+	}
+}
 async function run()
 {
 	// Open the interactive server.
