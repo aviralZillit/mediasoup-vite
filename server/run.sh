@@ -75,7 +75,7 @@ log_info "detected local IP: ${ip}"
 
 # Set env variables (don't override if already set).
 export DEBUG=${DEBUG:="mediasoup-demo-server:INFO* *WARN* *ERROR*"}
-export INTERACTIVE=${INTERACTIVE:="true"}
+export INTERACTIVE=${INTERACTIVE:="false"}
 export MEDIASOUP_ANNOUNCED_IP=${MEDIASOUP_ANNOUNCED_IP:="${ip}"}
 
 log_info "running mediasoup-demo server.js with envs:"
