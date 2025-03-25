@@ -1567,7 +1567,7 @@ class Room extends EventEmitter
 
 				if (!secret || secret !== process.env.NETWORK_THROTTLE_SECRET)
 				{
-					reject(403, 'operation NOT allowed, modda fuckaa');
+					reject(403, 'operation NOT allowed');
 
 					return;
 				}
@@ -1609,7 +1609,7 @@ class Room extends EventEmitter
 
 				if (!secret || secret !== process.env.NETWORK_THROTTLE_SECRET)
 				{
-					reject(403, 'operation NOT allowed, modda fuckaa');
+					reject(403, 'operation NOT allowed');
 
 					return;
 				}
@@ -1629,6 +1629,36 @@ class Room extends EventEmitter
 					reject(500, error.toString());
 				}
 
+				break;
+			}
+
+			case 'toggleHandRaise':
+			{
+				// Ensure the Peer is joined.
+				if (!peer.data.joined)
+					throw new Error('Peer not yet joined');
+				
+				// Toggle hand raise state
+				const raisedHand = request.data.raisedHand; // true = raise, false = lower
+
+				peer.data.raisedHand = raisedHand;
+				
+				// Choose the correct notification method
+				const notificationType = raisedHand ? 'peerRaisedHand' : 'peerLoweredHand';
+				
+				// Notify other joined Peers.
+				for (const otherPeer of this._getJoinedPeers({ excludePeer: peer })) 
+				{
+					otherPeer.notify(
+						notificationType,
+						{
+							peerId      : peer.id,
+							displayName : peer.data.displayName
+						}
+					).catch(() => {});
+				}
+				
+				accept();
 				break;
 			}
 
