@@ -1,33 +1,44 @@
 /* eslint-disable max-len */
+/* eslint-disable camelcase */
 const mongoose = require('mongoose');
 
-const mediasoupCallSchema = new mongoose.Schema({
-	roomId       : { type: String, required: true }, // mediasoup Room ID
-	participants : [
+const { Schema } = mongoose;
+
+const mediasoupCallSchema = mongoose.Schema({
+	project_id     : { type: Schema.Types.ObjectId, required: true, index: true },
+	start_time     : { type: Number, required: false, default: 0 }, // call start time
+	end_time       : { type: Number, required: false, default: 0 }, // call end time
+	call_type      : { type: String, required: false }, // audio or video
+	room_id        : { type: String, required: false }, // room id
+	voip_token     : { type: String, required: false },
+	current_status : { type: String, required: false },
+	is_random_call : { type: Boolean, required: true, default: false },
+	call_mode      : { type: String, required: false }, // private or group
+	chat_room_id   : {
+		type : String, required : false, default : '', index : true
+	}, // optional for private call
+	is_247_call      : { type: Boolean, required: false, default: false },
+	is_calendar_call : { type: Boolean, required: false, default: false },
+	sender_user_id   : { type: Schema.Types.ObjectId, required: false },
+	reciever_user_id : { type: Schema.Types.ObjectId, required: false },
+	call_users       : [
 		{
-			peerId      : { type: mongoose.Schema.Types.ObjectId, required: true }, // Unique Peer ID
-			displayName : { type: String, required: true },
-			role        : { type: String, enum: [ 'caller', 'receiver' ] },
-			joinedAt    : { type: Number, default: () => Date.now() }, // Store as Epoch Time (ms)
-			leftAt      : { type: Number, default: null }, // Store as Epoch Time (ms)
-			media       : {
-				audio       : { type: Boolean, default: false },
-				video       : { type: Boolean, default: false },
-				screenShare : { type: Boolean, default: false }
-			}
+			device_id      : { type: Schema.Types.ObjectId, required: false },
+			user_id        : { type: Schema.Types.ObjectId, required: true },
+			current_status : { type: String, required: false, default: '' }, // invited or caller
+			missed_call    : { type: Boolean, required: true, default: false },
+			deleted        : { type: Number, required: true, default: 0 },
+			created        : { type: Number, required: true, default: () => Date.now() }
 		}
 	],
-	callStatus : {
-		type    : String,
-		enum    : [ 'initiated', 'ongoing', 'ended', 'missed' ],
-		default : 'initiated'
-	},
-	startedAt     : { type: Number, default: () => Date.now() }, // Store as Epoch Time (ms)
-	endedAt       : { type: Number, default: null }, // Store as Epoch Time (ms)
-	duration      : { type: Number, default: 0 }, // Call duration in seconds
-	endedBy       : { type: mongoose.Schema.Types.ObjectId, default: null }, // PeerId of user who ended the call
-	failureReason : { type: String, default: null } // If failed, store reason
+	guest_users : [
+		{
+			current_status : { type: String, required: false, default: '' },
+			user_name      : { type: String, required: true, default: '' },
+			user_type      : { type: String, required: true, default: '' },
+			created        : { type: Number, required: true, default: () => Date.now() }
+		}
+	]
 });
 
-// Export the model
-module.exports = mongoose.model('mediasoupcall', mediasoupCallSchema);
+module.exports = mongoose.model('mediasoupservercall', mediasoupCallSchema);

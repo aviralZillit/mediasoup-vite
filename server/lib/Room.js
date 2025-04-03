@@ -1,3 +1,4 @@
+/* eslint-disable camelcase */
 const EventEmitter = require('events').EventEmitter;
 const mediasoup = require('mediasoup');
 const protoo = require('protoo-server');
@@ -8,6 +9,7 @@ const utils = require('./utils');
 const config = require('../config');
 const Bot = require('./Bot');
 
+const CallRepo = require('../repositories/MediasoupCalls');
 const logger = new Logger('Room');
 
 /**
@@ -262,7 +264,7 @@ class Room extends EventEmitter
 				});
 		});
 
-		peer.on('close', () =>
+		peer.on('close', async () =>
 		{
 			if (this._closed)
 				return;
@@ -277,6 +279,28 @@ class Room extends EventEmitter
 					otherPeer.notify('peerClosed', { peerId: peer.id })
 						.catch(() => {});
 				}
+			}
+			const call = await CallRepo.getCall({ filters: { room_id: this._roomId } });
+
+			try 
+			{
+				if (call) 
+				{
+					const userToUpdate = call.call_users
+						.find((user) => user.user_id.toString() === peer.id);
+	
+					if (userToUpdate) 
+					{
+						userToUpdate.current_status = 'left'; // Update status to left
+						call.markModified('call_users');
+						await call.save();
+						logger.info(`✅ User ${peer.id} marked as left in room ${this._roomId}`);
+					}
+				}
+			}
+			catch (error) 
+			{
+				logger.error(`Error updating user leave status: ${error.message}`);
 			}
 
 			// Iterate and close all mediasoup Transport associated to this Peer, so all
@@ -293,6 +317,22 @@ class Room extends EventEmitter
 					'last Peer in the room left, closing the room [roomId:%s]',
 					this._roomId);
 
+				try 
+				{
+			
+					if (call) 
+					{
+						call.end_time = Date.now();
+						call.current_status = 'call_ended'; // Mark call as ended
+
+						await call.save();
+						logger.info(`✅ Call marked as call_ended for room ${this._roomId}`);
+					}
+				}
+				catch (error) 
+				{
+					logger.error(`Error updating call status on room close: ${error.message}`);
+				}
 				this.close();
 			}
 		});
@@ -897,6 +937,40 @@ class Room extends EventEmitter
 				peer.data.rtpCapabilities = rtpCapabilities;
 				peer.data.sctpCapabilities = sctpCapabilities;
 
+				try 
+				{
+					const call = await CallRepo.getCall(
+						{
+							filters : { room_id: this._roomId } 
+						});				
+
+					if (!call) 
+					{
+						throw new Error(`Call not found for roomId: ${this._roomId}`);
+					}				
+					// Find the user inside `call_users` and update `created` timestamp
+					const userToUpdate = call.call_users
+						.find((user) => user.user_id.toString() === peer.id);
+		
+					if (!userToUpdate) 
+					{
+						throw new Error(`User ${peer.id} not found in call_users.`);
+					}
+					
+					call.current_status='call_active';
+					userToUpdate.created = Date.now(); // Update timestamp
+					userToUpdate.current_status = 'joined'; // Update timestamp
+				
+					// Mark the subdocument as modified
+					call.markModified('call_users');
+					await call.save();
+					logger.info(`✅ Successfully updated call data for user ${peer.id} in room ${this._roomId}`);
+				} 
+				catch (error) 
+				{
+					logger.error(`Error updating call status: ${error.message}`);
+				}
+			
 				// Tell the new Peer about already joined Peers.
 				// And also create Consumers for existing Producers.
 
