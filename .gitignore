@@ -16,3 +16,4 @@ server/certss/
 server/output.png
 server/.env
 app/src/urlFactory.js
+server/playground
