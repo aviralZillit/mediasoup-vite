@@ -8,9 +8,9 @@ import * as stateActions from './redux/stateActions';
 import * as e2e from './e2e';
 
 const VIDEO_CONSTRAINS = {
-	qvga : { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 15, max: 15 } },
-	vga  : { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15, max: 15 } },
-	hd   : { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 15, max: 15 } }
+	qvga : { width: { ideal: 320 }, height: { ideal: 240 } },
+	vga  : { width: { ideal: 640 }, height: { ideal: 480 } },
+	hd   : { width: { ideal: 1280 }, height: { ideal: 720 } }
 	
 };
 
@@ -1068,7 +1068,7 @@ export default class RoomClient
 {
 					encodings = [
 						{
-							maxBitrate      : 1000000,
+							maxBitrate      : 5000000,
 							scalabilityMode : this._webcamScalabilityMode || 'L3T3_KEY'
 						}
 					];
@@ -1079,7 +1079,7 @@ export default class RoomClient
 					encodings = [
 						{
 							scaleResolutionDownBy : 1,
-							maxBitrate            : 1000000,
+							maxBitrate            : 5000000,
 							scalabilityMode       : this._webcamScalabilityMode || 'L1T3'
 						}
 					];
