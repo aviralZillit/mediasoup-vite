@@ -39,6 +39,6 @@ const mediasoupCallSchema = mongoose.Schema({
 			created        : { type: Number, required: true, default: () => Date.now() }
 		}
 	]
-});
+}, { versionKey: false });
 
 module.exports = mongoose.model('mediasoupservercall', mediasoupCallSchema);
