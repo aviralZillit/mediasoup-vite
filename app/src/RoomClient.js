@@ -1415,7 +1415,7 @@ export default class RoomClient
 {
 					encodings = [
 						{
-							maxBitrate      : 1000000,
+							maxBitrate      : 5000000,
 							scalabilityMode : this._sharingScalabilityMode || 'L3T3',
 							dtx             : true
 						}
@@ -1427,7 +1427,7 @@ export default class RoomClient
 					encodings = [
 						{
 							scaleResolutionDownBy : 1,
-							maxBitrate            : 1000000,
+							maxBitrate            : 5000000,
 							scalabilityMode       : this._sharingScalabilityMode || 'L1T3',
 							dtx                   : true
 						}
