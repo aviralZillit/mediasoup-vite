@@ -1,3 +1,4 @@
+/* eslint-disable camelcase */
 const EventEmitter = require('events').EventEmitter;
 const mediasoup = require('mediasoup');
 const protoo = require('protoo-server');
@@ -8,6 +9,7 @@ const utils = require('./utils');
 const config = require('../config');
 const Bot = require('./Bot');
 
+const CallRepo = require('../repositories/MediasoupCalls');
 const logger = new Logger('Room');
 
 /**
@@ -262,7 +264,7 @@ class Room extends EventEmitter
 				});
 		});
 
-		peer.on('close', () =>
+		peer.on('close', async () =>
 		{
 			if (this._closed)
 				return;
@@ -277,6 +279,28 @@ class Room extends EventEmitter
 					otherPeer.notify('peerClosed', { peerId: peer.id })
 						.catch(() => {});
 				}
+			}
+			const call = await CallRepo.getCall({ filters: { room_id: this._roomId } });
+
+			try 
+			{
+				if (call) 
+				{
+					const userToUpdate = call.call_users
+						.find((user) => user.user_id.toString() === peer.id);
+	
+					if (userToUpdate) 
+					{
+						userToUpdate.current_status = 'left'; // Update status to left
+						call.markModified('call_users');
+						await call.save();
+						logger.info(`✅ User ${peer.id} marked as left in room ${this._roomId}`);
+					}
+				}
+			}
+			catch (error) 
+			{
+				logger.error(`Error updating user leave status: ${error.message}`);
 			}
 
 			// Iterate and close all mediasoup Transport associated to this Peer, so all
@@ -293,6 +317,22 @@ class Room extends EventEmitter
 					'last Peer in the room left, closing the room [roomId:%s]',
 					this._roomId);
 
+				try 
+				{
+			
+					if (call) 
+					{
+						call.end_time = Date.now();
+						call.current_status = 'call_ended'; // Mark call as ended
+
+						await call.save();
+						logger.info(`✅ Call marked as call_ended for room ${this._roomId}`);
+					}
+				}
+				catch (error) 
+				{
+					logger.error(`Error updating call status on room close: ${error.message}`);
+				}
 				this.close();
 			}
 		});
@@ -897,6 +937,40 @@ class Room extends EventEmitter
 				peer.data.rtpCapabilities = rtpCapabilities;
 				peer.data.sctpCapabilities = sctpCapabilities;
 
+				try 
+				{
+					const call = await CallRepo.getCall(
+						{
+							filters : { room_id: this._roomId } 
+						});				
+
+					if (!call) 
+					{
+						throw new Error(`Call not found for roomId: ${this._roomId}`);
+					}				
+					// Find the user inside `call_users` and update `created` timestamp
+					const userToUpdate = call.call_users
+						.find((user) => user.user_id.toString() === peer.id);
+		
+					if (!userToUpdate) 
+					{
+						throw new Error(`User ${peer.id} not found in call_users.`);
+					}
+					
+					call.current_status='call_active';
+					userToUpdate.created = Date.now(); // Update timestamp
+					userToUpdate.current_status = 'joined'; // Update timestamp
+				
+					// Mark the subdocument as modified
+					call.markModified('call_users');
+					await call.save();
+					logger.info(`✅ Successfully updated call data for user ${peer.id} in room ${this._roomId}`);
+				} 
+				catch (error) 
+				{
+					logger.error(`Error updating call status: ${error.message}`);
+				}
+			
 				// Tell the new Peer about already joined Peers.
 				// And also create Consumers for existing Producers.
 
@@ -988,7 +1062,7 @@ class Room extends EventEmitter
 				{
 					...utils.clone(config.mediasoup.webRtcTransportOptions),
 					webRtcServer      : this._webRtcServer,
-					iceConsentTimeout : 20,
+					iceConsentTimeout : 30,
 					enableSctp        : Boolean(sctpCapabilities),
 					numSctpStreams    : (sctpCapabilities || {}).numStreams,
 					appData           : { producing, consuming }
@@ -1008,10 +1082,23 @@ class Room extends EventEmitter
 
 				transport.on('icestatechange', (iceState) =>
 				{
-					if (iceState === 'disconnected' || iceState === 'closed')
+					logger.debug('WebRtcTransport ICE state changed:', iceState);
+					if (iceState === 'disconnected')
 					{
-						logger.warn('WebRtcTransport "icestatechange" event [iceState:%s], closing peer', iceState);
-
+						logger.warn('WebRtcTransport ICE disconnected [iceState:%s], peer: %s', iceState, peer.id);
+						// Don't immediately close, give some time for recovery
+						setTimeout(() =>
+						{
+							if (transport.iceState === 'disconnected' || transport.iceState === 'failed')
+							{
+								logger.warn('WebRtcTransport ICE still failed after timeout, closing peer');
+								peer.close();
+							}
+						}, 10000); // 10 second grace period
+					}
+					else if (iceState === 'closed')
+					{
+						logger.warn('WebRtcTransport ICE closed [iceState:%s], closing peer', iceState);
 						peer.close();
 					}
 				});
@@ -1023,10 +1110,23 @@ class Room extends EventEmitter
 
 				transport.on('dtlsstatechange', (dtlsState) =>
 				{
-					if (dtlsState === 'failed' || dtlsState === 'closed')
+					logger.debug('WebRtcTransport DTLS state changed:', dtlsState);
+					if (dtlsState === 'failed')
 					{
-						logger.warn('WebRtcTransport "dtlsstatechange" event [dtlsState:%s], closing peer', dtlsState);
-
+						logger.warn('WebRtcTransport DTLS failed [dtlsState:%s], peer: %s', dtlsState, peer.id);
+						// Give a brief moment for potential recovery
+						setTimeout(() =>
+						{
+							if (transport.dtlsState === 'failed')
+							{
+								logger.warn('WebRtcTransport DTLS still failed, closing peer');
+								peer.close();
+							}
+						}, 5000);
+					}
+					else if (dtlsState === 'closed')
+					{
+						logger.warn('WebRtcTransport DTLS closed [dtlsState:%s], closing peer', dtlsState);
 						peer.close();
 					}
 				});

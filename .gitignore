@@ -12,3 +12,8 @@ node_modules/
 
 # Local Netlify folder
 .netlify
+server/certss/
+server/output.png
+server/.env
+app/src/urlFactory.js
+server/playground
