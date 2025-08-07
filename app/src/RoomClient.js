@@ -274,10 +274,12 @@ export default class RoomClient
 
 		this._protoo.on('disconnected', () => 
 {
+			logger.warn('WebSocket disconnected - attempting reconnection');
+			
 			store.dispatch(
 				requestActions.notify({
-					type : 'error',
-					text : 'WebSocket disconnected'
+					type : 'warning',
+					text : 'Connection lost. Attempting to reconnect...'
 				})
 			);
 
@@ -295,6 +297,11 @@ export default class RoomClient
 			}
 
 			store.dispatch(stateActions.setRoomState('closed'));
+
+			// Attempt to reconnect after a delay
+			setTimeout(() => {
+				this._attemptReconnection();
+			}, 2000);
 		});
 
 		this._protoo.on('close', () => 
@@ -823,7 +830,10 @@ export default class RoomClient
 					opusStereo : true,
 					opusDtx    : true,
 					opusFec    : true,
-					opusNack   : true
+					opusNack   : true,
+					opusMaxPlaybackRate: 48000,
+					opusMaxAverageBitrate: 40000,
+					opusPtime: 20
 				}
 				// NOTE: for testing codec selection.
 				// codec : this._mediasoupDevice.rtpCapabilities.codecs
@@ -2521,10 +2531,37 @@ export default class RoomClient
 
 				this._sendTransport.on('connectionstatechange', (connectionState) => 
 {
+					logger.debug('sendTransport connectionstatechange:', connectionState);
+					
 					if (connectionState === 'connected') 
 {
 						this.enableChatDataProducer();
 						this.enableBotDataProducer();
+					} 
+					else if (connectionState === 'disconnected' || connectionState === 'failed') 
+{
+						logger.warn('sendTransport connection failed, attempting ICE restart');
+						this.restartIce().catch(error => {
+							logger.error('ICE restart failed:', error);
+							// Attempt to rejoin after a delay
+							setTimeout(() => {
+								this._rejoinRoom();
+							}, 5000);
+						});
+					}
+				});
+
+				// Add ICE connection state monitoring
+				this._sendTransport.on('icestatechange', (iceState) => {
+					logger.debug('sendTransport ICE state:', iceState);
+					if (iceState === 'disconnected') {
+						// Give some time for ICE to recover
+						setTimeout(() => {
+							if (this._sendTransport && this._sendTransport.iceState === 'disconnected') {
+								logger.warn('ICE still disconnected, restarting');
+								this.restartIce().catch(logger.error);
+							}
+						}, 3000);
 					}
 				});
 			}
@@ -2535,6 +2572,32 @@ export default class RoomClient
 				const { me } = store.getState();
 
 				store.dispatch(stateActions.setRoomStatsPeerId(me.id));
+			}
+
+			// Add receive transport monitoring
+			if (this._recvTransport) {
+				this._recvTransport.on('connectionstatechange', (connectionState) => {
+					logger.debug('recvTransport connectionstatechange:', connectionState);
+					
+					if (connectionState === 'disconnected' || connectionState === 'failed') {
+						logger.warn('recvTransport connection failed, attempting ICE restart');
+						this.restartIce().catch(error => {
+							logger.error('ICE restart failed:', error);
+						});
+					}
+				});
+
+				this._recvTransport.on('icestatechange', (iceState) => {
+					logger.debug('recvTransport ICE state:', iceState);
+					if (iceState === 'disconnected') {
+						setTimeout(() => {
+							if (this._recvTransport && this._recvTransport.iceState === 'disconnected') {
+								logger.warn('Receive ICE still disconnected, restarting');
+								this.restartIce().catch(logger.error);
+							}
+						}, 3000);
+					}
+				});
 			}
 		}
  catch (error) 
@@ -2669,5 +2732,112 @@ export default class RoomClient
 		else throw new Error('video.captureStream() not supported');
 
 		return this._externalVideoStream;
+	}
+
+	async _rejoinRoom() {
+		logger.debug('_rejoinRoom() - attempting to rejoin room');
+		
+		try {
+			// Close existing transports
+			if (this._sendTransport) {
+				this._sendTransport.close();
+				this._sendTransport = null;
+			}
+
+			if (this._recvTransport) {
+				this._recvTransport.close();
+				this._recvTransport = null;
+			}
+
+			// Clear producers and consumers
+			this._micProducer = null;
+			this._webcamProducer = null;
+			this._shareProducer = null;
+			this._chatDataProducer = null;
+			this._botDataProducer = null;
+			this._consumers.clear();
+			this._dataConsumers.clear();
+
+			// Wait a bit before rejoining
+			await new Promise(resolve => setTimeout(resolve, 2000));
+
+			// Rejoin the room
+			await this._joinRoom();
+
+			store.dispatch(
+				requestActions.notify({
+					type: 'info',
+					text: 'Successfully rejoined the room'
+				})
+			);
+		} catch (error) {
+			logger.error('_rejoinRoom() failed:', error);
+			
+			store.dispatch(
+				requestActions.notify({
+					type: 'error',
+					text: `Failed to rejoin room: ${error}`
+				})
+			);
+		}
+	}
+
+	async _attemptReconnection(attempt = 1, maxAttempts = 5) {
+		logger.debug(`_attemptReconnection() - attempt ${attempt}/${maxAttempts}`);
+		
+		if (attempt > maxAttempts) {
+			store.dispatch(
+				requestActions.notify({
+					type: 'error',
+					text: 'Failed to reconnect after multiple attempts'
+				})
+			);
+			return;
+		}
+
+		try {
+			// Create new protoo connection
+			const protooTransport = new protooClient.WebSocketTransport(this._protooUrl);
+			this._protoo = new protooClient.Peer(protooTransport);
+
+			// Set up event handlers again
+			this._protoo.on('open', () => {
+				logger.info('WebSocket reconnected successfully');
+				this._joinRoom();
+			});
+
+			this._protoo.on('failed', () => {
+				logger.warn(`WebSocket reconnection attempt ${attempt} failed`);
+				// Try again with exponential backoff
+				setTimeout(() => {
+					this._attemptReconnection(attempt + 1, maxAttempts);
+				}, Math.pow(2, attempt) * 1000);
+			});
+
+			this._protoo.on('disconnected', () => {
+				// Handle disconnection again if it happens
+				setTimeout(() => {
+					this._attemptReconnection();
+				}, 2000);
+			});
+
+			// Set up request handlers again
+			this._setupProtooHandlers();
+
+		} catch (error) {
+			logger.error('_attemptReconnection() failed:', error);
+			// Try again with exponential backoff
+			setTimeout(() => {
+				this._attemptReconnection(attempt + 1, maxAttempts);
+			}, Math.pow(2, attempt) * 1000);
+		}
+	}
+
+	_setupProtooHandlers() {
+		// Move all the request handlers here from the join() method
+		// This allows them to be reused during reconnection
+		this._protoo.on('request', async (request, accept, reject) => {
+			// ... all the existing request handlers from the join() method
+		});
 	}
 }

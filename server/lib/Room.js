@@ -1062,7 +1062,7 @@ class Room extends EventEmitter
 				{
 					...utils.clone(config.mediasoup.webRtcTransportOptions),
 					webRtcServer      : this._webRtcServer,
-					iceConsentTimeout : 20,
+					iceConsentTimeout : 30,
 					enableSctp        : Boolean(sctpCapabilities),
 					numSctpStreams    : (sctpCapabilities || {}).numStreams,
 					appData           : { producing, consuming }
@@ -1082,10 +1082,23 @@ class Room extends EventEmitter
 
 				transport.on('icestatechange', (iceState) =>
 				{
-					if (iceState === 'disconnected' || iceState === 'closed')
+					logger.debug('WebRtcTransport ICE state changed:', iceState);
+					if (iceState === 'disconnected')
 					{
-						logger.warn('WebRtcTransport "icestatechange" event [iceState:%s], closing peer', iceState);
-
+						logger.warn('WebRtcTransport ICE disconnected [iceState:%s], peer: %s', iceState, peer.id);
+						// Don't immediately close, give some time for recovery
+						setTimeout(() =>
+						{
+							if (transport.iceState === 'disconnected' || transport.iceState === 'failed')
+							{
+								logger.warn('WebRtcTransport ICE still failed after timeout, closing peer');
+								peer.close();
+							}
+						}, 10000); // 10 second grace period
+					}
+					else if (iceState === 'closed')
+					{
+						logger.warn('WebRtcTransport ICE closed [iceState:%s], closing peer', iceState);
 						peer.close();
 					}
 				});
@@ -1097,10 +1110,23 @@ class Room extends EventEmitter
 
 				transport.on('dtlsstatechange', (dtlsState) =>
 				{
-					if (dtlsState === 'failed' || dtlsState === 'closed')
+					logger.debug('WebRtcTransport DTLS state changed:', dtlsState);
+					if (dtlsState === 'failed')
 					{
-						logger.warn('WebRtcTransport "dtlsstatechange" event [dtlsState:%s], closing peer', dtlsState);
-
+						logger.warn('WebRtcTransport DTLS failed [dtlsState:%s], peer: %s', dtlsState, peer.id);
+						// Give a brief moment for potential recovery
+						setTimeout(() =>
+						{
+							if (transport.dtlsState === 'failed')
+							{
+								logger.warn('WebRtcTransport DTLS still failed, closing peer');
+								peer.close();
+							}
+						}, 5000);
+					}
+					else if (dtlsState === 'closed')
+					{
+						logger.warn('WebRtcTransport DTLS closed [dtlsState:%s], closing peer', dtlsState);
 						peer.close();
 					}
 				});
