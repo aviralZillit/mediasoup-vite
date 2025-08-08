@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+// Load environment variables first before anything else
+require('dotenv').config();
+
 process.title = 'mediasoup-server';
 process.env.DEBUG = process.env.DEBUG || '*INFO* *WARN* *ERROR*';
 
@@ -25,9 +28,6 @@ const utils = require('./lib/utils');
 const Room = require('./lib/Room');
 const interactiveServer = require('./lib/interactiveServer');
 const interactiveClient = require('./lib/interactiveClient');
-
-// Load environment variables
-require('dotenv').config();
 
 const logger = new Logger();
 
@@ -110,6 +110,51 @@ async function run()
 			room.logStatus();
 		}
 	}, 120000);
+	
+	// Enhanced server monitoring
+	setInterval(() =>
+	{
+		const memUsage = process.memoryUsage();
+		
+		logger.info('Server memory usage:', {
+			rss       : `${Math.round(memUsage.rss / 1024 / 1024)} MB`,
+			heapUsed  : `${Math.round(memUsage.heapUsed / 1024 / 1024)} MB`,
+			heapTotal : `${Math.round(memUsage.heapTotal / 1024 / 1024)} MB`,
+			external  : `${Math.round(memUsage.external / 1024 / 1024)} MB`
+		});
+
+		logger.info('Active rooms count:', rooms.size);
+		logger.info('Active mediasoup workers:', mediasoupWorkers.length);
+	}, 300000); // Every 5 minutes
+
+	// Graceful shutdown handling
+	process.on('SIGINT', () =>
+	{
+		logger.info('Received SIGINT, shutting down gracefully...');
+		
+		gracefulShutdown();
+	});
+
+	process.on('SIGTERM', () =>
+	{
+		logger.info('Received SIGTERM, shutting down gracefully...');
+		
+		gracefulShutdown();
+	});
+
+	// Unhandled rejection handling
+	process.on('unhandledRejection', (reason, promise) =>
+	{
+		logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+		// Don't exit the process, just log the error
+	});
+
+	process.on('uncaughtException', (error) =>
+	{
+		logger.error('Uncaught Exception:', error);
+		// Exit gracefully
+		gracefulShutdown();
+	});
 }
 
 /**
@@ -185,8 +230,43 @@ async function createExpressApp()
 	logger.info('creating Express app...');
 	expressApp = express();
 	expressApp.use(bodyParser.json());
-	// Health Check Route
-	expressApp.get('/health', (req, res) => { res.status(200).json({ message: 'ok' }); });
+	// Enhanced Health Check Route
+	expressApp.get('/health', (req, res) =>
+	{
+		const healthStatus = {
+			status    : 'ok',
+			timestamp : new Date().toISOString(),
+			uptime    : process.uptime(),
+			memory    : {
+				rss       : Math.round(process.memoryUsage().rss / 1024 / 1024),
+				heapUsed  : Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+				heapTotal : Math.round(process.memoryUsage().heapTotal / 1024 / 1024)
+			},
+			activeRooms      : rooms.size,
+			mediasoupWorkers : mediasoupWorkers.length,
+			database         : mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+		};
+
+		res.status(200).json(healthStatus);
+	});
+
+	// Detailed system info endpoint
+	expressApp.get('/system-info', (req, res) =>
+	{
+		const systemInfo = {
+			nodeVersion      : process.version,
+			platform         : process.platform,
+			architecture     : process.arch,
+			cpuUsage         : process.cpuUsage(),
+			memoryUsage      : process.memoryUsage(),
+			uptime           : process.uptime(),
+			activeRooms      : rooms.size,
+			totalConnections : Array.from(rooms.values())
+				.reduce((total, room) => total + room._protooRoom.peers.length, 0)
+		};
+
+		res.status(200).json(systemInfo);
+	});
 
 	/**
 	 * For every API request, verify that the roomId in the path matches and
@@ -601,4 +681,54 @@ async function getOrCreateRoom({ roomId, consumerReplicas })
 	}
 
 	return room;
+}
+
+/**
+ * Graceful shutdown handler
+ */
+async function gracefulShutdown()
+{
+	logger.info('Starting graceful shutdown...');
+
+	try
+	{
+		// Close all rooms
+		for (const room of rooms.values())
+		{
+			room.close();
+		}
+
+		// Close protoo WebSocket server
+		if (protooWebSocketServer)
+		{
+			protooWebSocketServer.close();
+		}
+
+		// Close HTTPS server
+		if (httpsServer)
+		{
+			httpsServer.close();
+		}
+
+		// Close mediasoup workers
+		for (const worker of mediasoupWorkers)
+		{
+			worker.close();
+		}
+
+		// Close MongoDB connection
+		if (mongoose.connection.readyState === 1)
+		{
+			await mongoose.connection.close();
+			logger.info('MongoDB connection closed');
+		}
+
+		logger.info('Graceful shutdown completed');
+		process.exit(0);
+	}
+	catch (error)
+	{
+		logger.error('Error during graceful shutdown:', error);
+		process.exit(1);
+	}
 }

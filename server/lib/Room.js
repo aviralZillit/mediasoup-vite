@@ -97,6 +97,25 @@ class Room extends EventEmitter
 		// @type {protoo.Room}
 		this._protooRoom = protooRoom;
 
+		// Connection quality monitoring
+		// @type {Map<String, Object>}
+		this._connectionStats = new Map();
+
+		// Reconnection tracking
+		// @type {Map<String, Number>}
+		this._reconnectionAttempts = new Map();
+
+		// Auto-recovery settings
+		this._maxReconnectionAttempts = 5;
+		this._reconnectionDelay = 2000; // 2 seconds
+
+		// Enhanced monitoring intervals
+		this._qualityMonitoringInterval = null;
+		this._statsCollectionInterval = null;
+
+		// Start connection quality monitoring
+		this._startConnectionQualityMonitoring();
+
 		// Map of broadcasters indexed by id. Each Object has:
 		// - {String} id
 		// - {Object} data
@@ -159,6 +178,9 @@ class Room extends EventEmitter
 		logger.debug('close()');
 
 		this._closed = true;
+
+		// Stop connection quality monitoring
+		this._stopConnectionQualityMonitoring();
 
 		// Close the protoo Room.
 		this._protooRoom.close();
@@ -1926,6 +1948,22 @@ class Room extends EventEmitter
 					// Send a protoo request to the remote Peer with Consumer parameters.
 					try
 					{
+						// Determine the type based on producer appData
+						let consumerType = 'webcam'; // default type
+
+						if (producer.appData.share)
+						{
+							consumerType = 'share';
+						}
+						else if (producer.appData.shareAudio)
+						{
+							consumerType = 'shareAudio';
+						}
+						else if (consumer.kind === 'audio')
+						{
+							consumerType = 'mic';
+						}
+
 						await consumerPeer.request(
 							'newConsumer',
 							{
@@ -1934,7 +1972,7 @@ class Room extends EventEmitter
 								id             : consumer.id,
 								kind           : consumer.kind,
 								rtpParameters  : consumer.rtpParameters,
-								type           : consumer.type,
+								type           : consumerType,
 								appData        : producer.appData,
 								producerPaused : consumer.producerPaused
 							});
@@ -2060,6 +2098,284 @@ class Room extends EventEmitter
 		{
 			logger.warn('_createDataConsumer() | failed:%o', error);
 		}
+	}
+
+	/**
+	 * Start connection quality monitoring for all peers
+	 * 
+	 * @private
+	 */
+	_startConnectionQualityMonitoring()
+	{
+		// Monitor connection quality every 10 seconds
+		this._qualityMonitoringInterval = setInterval(() =>
+		{
+			this._monitorConnectionQuality();
+		}, 10000);
+
+		// Collect detailed stats every 30 seconds
+		this._statsCollectionInterval = setInterval(() =>
+		{
+			this._collectDetailedStats();
+		}, 30000);
+	}
+
+	/**
+	 * Monitor connection quality for all peers
+	 * 
+	 * @private
+	 */
+	async _monitorConnectionQuality()
+	{
+		if (this._closed) return;
+
+		for (const peer of this._protooRoom.peers)
+		{
+			try
+			{
+				const peerId = peer.id;
+				const peerData = peer.data;
+
+				// Initialize connection stats if not exists
+				if (!this._connectionStats.has(peerId))
+				{
+					this._connectionStats.set(peerId, {
+						lastSeen         : Date.now(),
+						packetLoss       : 0,
+						avgRtt           : 0,
+						qualityScore     : 100,
+						reconnections    : 0,
+						lastReconnection : null
+					});
+				}
+
+				const stats = this._connectionStats.get(peerId);
+				
+				// Check if peer is responsive
+				const now = Date.now();
+				const timeSinceLastSeen = now - stats.lastSeen;
+
+				// If peer hasn't been seen for 30 seconds, consider it problematic
+				if (timeSinceLastSeen > 30000)
+				{
+					logger.warn(
+						'Peer appears unresponsive [peerId:%s, timeSinceLastSeen:%d]',
+						peerId, timeSinceLastSeen
+					);
+					
+					// Attempt recovery
+					await this._attemptPeerRecovery(peer);
+				}
+
+				// Monitor transport quality
+				for (const transport of peerData.transports.values())
+				{
+					const transportStats = await transport.getStats();
+					
+					// Analyze transport statistics for quality issues
+					this._analyzeTransportStats(peerId, transport.id, transportStats);
+				}
+			}
+			catch (error)
+			{
+				logger.error('Error monitoring peer connection quality:', error);
+			}
+		}
+	}
+
+	/**
+	 * Collect detailed statistics for all peers
+	 * 
+	 * @private
+	 */
+	async _collectDetailedStats()
+	{
+		if (this._closed) return;
+
+		try
+		{
+			const roomStats = {
+				roomId         : this._roomId,
+				timestamp      : new Date(),
+				activePeers    : this._protooRoom.peers.length,
+				totalProducers : 0,
+				totalConsumers : 0,
+				peerStats      : []
+			};
+
+			for (const peer of this._protooRoom.peers)
+			{
+				const peerData = peer.data;
+				const connectionStats = this._connectionStats.get(peer.id);
+				const peerStat = {
+					peerId            : peer.id,
+					producers         : peerData.producers.size,
+					consumers         : peerData.consumers.size,
+					transports        : peerData.transports.size,
+					connectionQuality : connectionStats ? connectionStats.qualityScore : 0
+				};
+
+				roomStats.totalProducers += peerStat.producers;
+				roomStats.totalConsumers += peerStat.consumers;
+				roomStats.peerStats.push(peerStat);
+			}
+
+			logger.debug('Room statistics:', roomStats);
+			
+			// Emit stats for monitoring systems
+			this.emit('roomStats', roomStats);
+		}
+		catch (error)
+		{
+			logger.error('Error collecting detailed stats:', error);
+		}
+	}
+
+	/**
+	 * Analyze transport statistics for quality issues
+	 * 
+	 * @private
+	 * @param {String} peerId - Peer ID
+	 * @param {String} transportId - Transport ID
+	 * @param {Array} transportStats - Transport statistics
+	 */
+	_analyzeTransportStats(peerId, transportId, transportStats)
+	{
+		try
+		{
+			const stats = this._connectionStats.get(peerId);
+			
+			for (const stat of transportStats)
+			{
+				// ICE connection state monitoring
+				if (stat.type === 'transport')
+				{
+					if (stat.iceState === 'disconnected' || stat.iceState === 'failed')
+					{
+						logger.warn(
+							'Poor ICE connection detected [peerId:%s, transportId:%s, iceState:%s]',
+							peerId, transportId, stat.iceState
+						);
+						
+						// Decrease quality score
+						stats.qualityScore = Math.max(0, stats.qualityScore - 20);
+					}
+					else if (stat.iceState === 'connected')
+					{
+						// Gradually improve quality score if connection is stable
+						stats.qualityScore = Math.min(100, stats.qualityScore + 5);
+					}
+				}
+
+				// RTP stream monitoring
+				if (stat.type === 'outbound-rtp' || stat.type === 'inbound-rtp')
+				{
+					if (stat.packetsLost > 0)
+					{
+						const packetLossRate = (stat.packetsLost / stat.packetsSent) * 100;
+						
+						if (packetLossRate > 5) // More than 5% packet loss
+						{
+							logger.warn(
+								'High packet loss detected [peerId:%s, transportId:%s, packetLoss:%d%%]',
+								peerId, transportId, packetLossRate.toFixed(2)
+							);
+							
+							stats.packetLoss = packetLossRate;
+							stats.qualityScore = Math.max(0, stats.qualityScore - 15);
+						}
+					}
+				}
+			}
+
+			// Update last seen timestamp
+			stats.lastSeen = Date.now();
+		}
+		catch (error)
+		{
+			logger.error('Error analyzing transport stats:', error);
+		}
+	}
+
+	/**
+	 * Attempt to recover problematic peer connection
+	 * 
+	 * @private
+	 * @param {Object} peer - Protoo peer
+	 */
+	async _attemptPeerRecovery(peer)
+	{
+		try
+		{
+			const peerId = peer.id;
+			const attemptCount = this._reconnectionAttempts.get(peerId) || 0;
+
+			if (attemptCount >= this._maxReconnectionAttempts)
+			{
+				logger.warn(
+					'Max reconnection attempts reached for peer [peerId:%s]',
+					peerId
+				);
+
+				return;
+			}
+
+			logger.info(
+				'Attempting peer recovery [peerId:%s, attempt:%d]',
+				peerId, attemptCount + 1
+			);
+
+			// Increment attempt counter
+			this._reconnectionAttempts.set(peerId, attemptCount + 1);
+
+			// Send recovery signal to peer
+			await peer.notify('connectionRecovery', {
+				reason     : 'Connection quality degraded',
+				suggestion : 'Please check your network connection'
+			}).catch(() =>
+			{
+				logger.warn('Failed to send recovery notification to peer:', peerId);
+			});
+
+			// Schedule next attempt if this one fails
+			setTimeout(() =>
+			{
+				const currentAttempts = this._reconnectionAttempts.get(peerId) || 0;
+				
+				if (currentAttempts < this._maxReconnectionAttempts)
+				{
+					this._attemptPeerRecovery(peer);
+				}
+			}, this._reconnectionDelay * (attemptCount + 1)); // Exponential backoff
+
+		}
+		catch (error)
+		{
+			logger.error('Error during peer recovery attempt:', error);
+		}
+	}
+
+	/**
+	 * Clean up connection monitoring when room closes
+	 * 
+	 * @private
+	 */
+	_stopConnectionQualityMonitoring()
+	{
+		if (this._qualityMonitoringInterval)
+		{
+			clearInterval(this._qualityMonitoringInterval);
+			this._qualityMonitoringInterval = null;
+		}
+
+		if (this._statsCollectionInterval)
+		{
+			clearInterval(this._statsCollectionInterval);
+			this._statsCollectionInterval = null;
+		}
+
+		this._connectionStats.clear();
+		this._reconnectionAttempts.clear();
 	}
 }
 
