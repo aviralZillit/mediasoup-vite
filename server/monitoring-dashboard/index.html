@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MediaSoup Monitoring Dashboard</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+        
+        .header {
+            background: #2c3e50;
+            color: white;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header h1 {
+            font-size: 1.5rem;
+        }
+        
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #27ae60;
+        }
+        
+        .status-dot.disconnected {
+            background: #e74c3c;
+        }
+        
+        .container {
+            padding: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .card h3 {
+            margin-bottom: 1rem;
+            color: #2c3e50;
+            font-size: 1.1rem;
+        }
+        
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .metric:last-child {
+            border-bottom: none;
+        }
+        
+        .metric-value {
+            font-weight: 600;
+            color: #27ae60;
+        }
+        
+        .metric-value.warning {
+            color: #f39c12;
+        }
+        
+        .metric-value.danger {
+            color: #e74c3c;
+        }
+        
+        .alerts {
+            margin-top: 2rem;
+        }
+        
+        .alert {
+            background: white;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            border-left: 4px solid #3498db;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .alert.warning {
+            border-left-color: #f39c12;
+        }
+        
+        .alert.high {
+            border-left-color: #e74c3c;
+        }
+        
+        .alert.critical {
+            border-left-color: #8e44ad;
+        }
+        
+        .alert-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+        
+        .alert-type {
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+        }
+        
+        .alert-time {
+            color: #666;
+            font-size: 0.8rem;
+        }
+        
+        .rooms-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+            gap: 1.5rem;
+        }
+        
+        .room-card {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .room-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #ecf0f1;
+        }
+        
+        .room-id {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .peer-list {
+            margin-top: 1rem;
+        }
+        
+        .peer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem;
+            margin-bottom: 0.5rem;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+        
+        .peer-name {
+            font-weight: 500;
+        }
+        
+        .quality-score {
+            padding: 0.2rem 0.5rem;
+            border-radius: 12px;
+            color: white;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        
+        .quality-5 { background: #27ae60; }
+        .quality-4 { background: #2ecc71; }
+        .quality-3 { background: #f39c12; }
+        .quality-2 { background: #e67e22; }
+        .quality-1 { background: #e74c3c; }
+        
+        .controls {
+            margin-bottom: 2rem;
+        }
+        
+        .btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        
+        .btn:hover {
+            background: #2980b9;
+        }
+        
+        .btn.danger {
+            background: #e74c3c;
+        }
+        
+        .btn.danger:hover {
+            background: #c0392b;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎥 MediaSoup Monitoring Dashboard</h1>
+        <div class="status">
+            <div class="status-dot" id="connectionStatus"></div>
+            <span id="connectionText">Connecting...</span>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="controls">
+            <button class="btn danger" onclick="clearAlerts()">Clear Alerts</button>
+            <button class="btn" onclick="refreshData()">Refresh</button>
+        </div>
+
+        <!-- Server Overview -->
+        <div class="grid">
+            <div class="card">
+                <h3>📊 Server Overview</h3>
+                <div id="serverMetrics">
+                    <div class="loading">Loading server metrics...</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>🏠 Rooms Summary</h3>
+                <div id="roomsSummary">
+                    <div class="loading">Loading rooms data...</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>💾 System Resources</h3>
+                <div id="systemResources">
+                    <div class="loading">Loading system data...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Active Rooms -->
+        <div class="card" style="margin-bottom: 2rem;">
+            <h3>🎪 Active Rooms</h3>
+            <div class="rooms-grid" id="activeRooms">
+                <div class="loading">Loading rooms...</div>
+            </div>
+        </div>
+
+        <!-- Alerts -->
+        <div class="alerts">
+            <h3>🚨 Alerts & Events</h3>
+            <div id="alertsList">
+                <div class="loading">Loading alerts...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class MonitoringDashboard {
+            constructor() {
+                this.socket = io();
+                this.setupSocketHandlers();
+            }
+
+            setupSocketHandlers() {
+                this.socket.on('connect', () => {
+                    this.updateConnectionStatus(true);
+                });
+
+                this.socket.on('disconnect', () => {
+                    this.updateConnectionStatus(false);
+                });
+
+                this.socket.on('metrics', (metrics) => {
+                    this.updateMetrics(metrics);
+                });
+
+                this.socket.on('alerts', (alerts) => {
+                    this.updateAlerts(alerts);
+                });
+            }
+
+            updateConnectionStatus(connected) {
+                const statusDot = document.getElementById('connectionStatus');
+                const statusText = document.getElementById('connectionText');
+                
+                if (connected) {
+                    statusDot.classList.remove('disconnected');
+                    statusText.textContent = 'Connected';
+                } else {
+                    statusDot.classList.add('disconnected');
+                    statusText.textContent = 'Disconnected';
+                }
+            }
+
+            updateMetrics(metrics) {
+                this.updateServerMetrics(metrics.server);
+                this.updateRoomsSummary(metrics.rooms);
+                this.updateSystemResources(metrics.server);
+                this.updateActiveRooms(metrics.rooms);
+            }
+
+            updateServerMetrics(server) {
+                const container = document.getElementById('serverMetrics');
+                const uptime = this.formatDuration(server.uptime || 0);
+                
+                container.innerHTML = `
+                    <div class="metric">
+                        <span>Uptime</span>
+                        <span class="metric-value">${uptime}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Total Rooms</span>
+                        <span class="metric-value">${server.totalRooms || 0}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Total Peers</span>
+                        <span class="metric-value">${server.totalPeers || 0}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Workers</span>
+                        <span class="metric-value">${server.workersCount || 0}</span>
+                    </div>
+                `;
+            }
+
+            updateRoomsSummary(rooms) {
+                const container = document.getElementById('roomsSummary');
+                
+                const totalParticipants = rooms.reduce((sum, room) => sum + room.currentPeers, 0);
+                const totalProducers = rooms.reduce((sum, room) => sum + room.totalProducers, 0);
+                const totalConsumers = rooms.reduce((sum, room) => sum + room.totalConsumers, 0);
+                
+                container.innerHTML = `
+                    <div class="metric">
+                        <span>Active Rooms</span>
+                        <span class="metric-value">${rooms.length}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Total Participants</span>
+                        <span class="metric-value">${totalParticipants}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Total Producers</span>
+                        <span class="metric-value">${totalProducers}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Total Consumers</span>
+                        <span class="metric-value">${totalConsumers}</span>
+                    </div>
+                `;
+            }
+
+            updateSystemResources(server) {
+                const container = document.getElementById('systemResources');
+                
+                if (server.memoryUsage) {
+                    const memoryMB = Math.round(server.memoryUsage.heapUsed / 1024 / 1024);
+                    const memoryPercent = Math.round((server.memoryUsage.heapUsed / server.memoryUsage.heapTotal) * 100);
+                    
+                    container.innerHTML = `
+                        <div class="metric">
+                            <span>Memory Usage</span>
+                            <span class="metric-value ${memoryPercent > 80 ? 'danger' : memoryPercent > 60 ? 'warning' : ''}">${memoryMB} MB (${memoryPercent}%)</span>
+                        </div>
+                        <div class="metric">
+                            <span>Heap Total</span>
+                            <span class="metric-value">${Math.round(server.memoryUsage.heapTotal / 1024 / 1024)} MB</span>
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = '<div class="loading">No system data available</div>';
+                }
+            }
+
+            updateActiveRooms(rooms) {
+                const container = document.getElementById('activeRooms');
+                
+                if (rooms.length === 0) {
+                    container.innerHTML = '<div style="text-align: center; padding: 2rem; color: #666;">No active rooms</div>';
+                    return;
+                }
+
+                container.innerHTML = rooms.map(room => `
+                    <div class="room-card">
+                        <div class="room-header">
+                            <div class="room-id">Room: ${room.roomId}</div>
+                            <div style="color: #666; font-size: 0.9rem;">
+                                ${this.formatDuration(room.uptime || 0)}
+                            </div>
+                        </div>
+                        
+                        <div class="metric">
+                            <span>Participants</span>
+                            <span class="metric-value">${room.currentPeers}</span>
+                        </div>
+                        <div class="metric">
+                            <span>Producers</span>
+                            <span class="metric-value">${room.totalProducers}</span>
+                        </div>
+                        <div class="metric">
+                            <span>Consumers</span>
+                            <span class="metric-value">${room.totalConsumers}</span>
+                        </div>
+                        
+                        ${room.connectionQuality && room.connectionQuality.length > 0 ? `
+                            <div class="peer-list">
+                                <strong>Connection Quality:</strong>
+                                ${room.connectionQuality.map(peer => `
+                                    <div class="peer">
+                                        <span class="peer-name">${peer.displayName || peer.peerId}</span>
+                                        <span class="quality-score quality-${Math.floor(peer.score)}">${peer.score}/5</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : ''}
+                        
+                        ${room.recentErrors && room.recentErrors.length > 0 ? `
+                            <div style="margin-top: 1rem; padding: 0.5rem; background: #fff3cd; border-radius: 4px; color: #856404; font-size: 0.8rem;">
+                                ⚠️ ${room.recentErrors.length} recent error(s)
+                            </div>
+                        ` : ''}
+                    </div>
+                `).join('');
+            }
+
+            updateAlerts(alerts) {
+                const container = document.getElementById('alertsList');
+                
+                if (alerts.length === 0) {
+                    container.innerHTML = '<div style="text-align: center; padding: 2rem; color: #666;">No alerts</div>';
+                    return;
+                }
+
+                container.innerHTML = alerts.map(alert => `
+                    <div class="alert ${alert.severity}">
+                        <div class="alert-header">
+                            <span class="alert-type">${alert.type} - ${alert.severity}</span>
+                            <span class="alert-time">${this.formatTime(alert.timestamp)}</span>
+                        </div>
+                        <div>${alert.message}</div>
+                        ${alert.roomId ? `<div style="font-size: 0.8rem; color: #666; margin-top: 0.5rem;">Room: ${alert.roomId}</div>` : ''}
+                    </div>
+                `).join('');
+            }
+
+            formatDuration(ms) {
+                const seconds = Math.floor(ms / 1000);
+                const minutes = Math.floor(seconds / 60);
+                const hours = Math.floor(minutes / 60);
+                const days = Math.floor(hours / 24);
+
+                if (days > 0) return `${days}d ${hours % 24}h`;
+                if (hours > 0) return `${hours}h ${minutes % 60}m`;
+                if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+                return `${seconds}s`;
+            }
+
+            formatTime(timestamp) {
+                return new Date(timestamp).toLocaleTimeString();
+            }
+        }
+
+        function clearAlerts() {
+            dashboard.socket.emit('clearAlerts');
+        }
+
+        function refreshData() {
+            location.reload();
+        }
+
+        // Initialize dashboard
+        const dashboard = new MonitoringDashboard();
+    </script>
+</body>
+</html>

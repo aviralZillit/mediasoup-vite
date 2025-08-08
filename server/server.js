@@ -27,6 +27,9 @@ const interactiveClient = require('./lib/interactiveClient');
 
 const logger = new Logger();
 
+// Server start time for uptime calculation
+const serverStartTime = Date.now();
+
 // Async queue to manage rooms.
 // @type {AwaitQueue}
 const queue = new AwaitQueue();
@@ -86,6 +89,29 @@ async function run()
 			room.logStatus();
 		}
 	}, 120000);
+
+	// Memory monitoring and cleanup (ultra-aggressive)
+	setInterval(() =>
+	{
+		const memUsage = process.memoryUsage();
+		const heapUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+		const heapTotalMB = Math.round(memUsage.heapTotal / 1024 / 1024);
+		const heapPercent = Math.round((memUsage.heapUsed / memUsage.heapTotal) * 100);
+
+		logger.info('Memory usage: %d MB / %d MB (%d%%)', heapUsedMB, heapTotalMB, heapPercent);
+
+		// More aggressive garbage collection trigger
+		if (heapPercent > 70) // Reduced from 85% to 70%
+		{
+			logger.warn('High memory usage detected (%d%%), forcing GC', heapPercent);
+			
+			if (global.gc)
+			{
+				global.gc();
+				logger.info('Manual garbage collection triggered at %d%% usage', heapPercent);
+			}
+		}
+	}, 90000); // Check every 1.5 minutes (less frequent monitoring)
 }
 
 /**
@@ -161,8 +187,155 @@ async function createExpressApp()
 	logger.info('creating Express app...');
 	expressApp = express();
 	expressApp.use(bodyParser.json());
+	
 	// Health Check Route
 	expressApp.get('/health', (req, res) => { res.status(200).json({ message: 'ok' }); });
+
+	// Real-time Analytics Routes
+	expressApp.get('/analytics/rooms', (req, res) => 
+	{
+		const roomAnalytics = [];
+
+		for (const [ , room ] of rooms)
+		{
+			roomAnalytics.push(room.getRoomAnalytics());
+		}
+		
+		res.status(200).json(roomAnalytics);
+	});
+
+	expressApp.get('/analytics/rooms/:roomId', (req, res) => 
+	{
+		const { roomId } = req.params;
+		const room = rooms.get(roomId);
+
+		if (!room)
+		{
+			return res.status(404).json({ error: 'Room not found' });
+		}
+
+		res.status(200).json(room.getRoomAnalytics());
+	});
+
+	expressApp.get('/analytics/rooms/:roomId/peers/:peerId', (req, res) => 
+	{
+		const { roomId, peerId } = req.params;
+		const room = rooms.get(roomId);
+
+		if (!room)
+		{
+			return res.status(404).json({ error: 'Room not found' });
+		}
+
+		const peerStats = room.getPeerStats(peerId);
+
+		if (!peerStats)
+		{
+			return res.status(404).json({ error: 'Peer not found' });
+		}
+
+		res.status(200).json(peerStats);
+	});
+
+	// Global server statistics
+	expressApp.get('/analytics/server', (req, res) => 
+	{
+		const totalRooms = rooms.size;
+		let totalPeers = 0;
+		let totalProducers = 0;
+		let totalConsumers = 0;
+
+		for (const room of rooms.values())
+		{
+			const analytics = room.getRoomAnalytics();
+
+			totalPeers += analytics.currentPeers;
+			totalProducers += analytics.totalProducers;
+			totalConsumers += analytics.totalConsumers;
+		}
+
+		res.status(200).json(
+			{
+				uptime       : Date.now() - serverStartTime,
+				totalRooms,
+				totalPeers,
+				totalProducers,
+				totalConsumers,
+				workersCount : mediasoupWorkers.length,
+				memoryUsage  : process.memoryUsage(),
+				cpuUsage     : process.cpuUsage()
+			});
+	});
+
+	// Real-time Producer Stats
+	expressApp.get('/analytics/rooms/:roomId/producers', (req, res) => 
+	{
+		const { roomId } = req.params;
+		const room = rooms.get(roomId);
+
+		if (!room)
+		{
+			return res.status(404).json({ error: 'Room not found' });
+		}
+
+		res.status(200).json(room.getProducersStats());
+	});
+
+	// Real-time Consumer Stats
+	expressApp.get('/analytics/rooms/:roomId/consumers', (req, res) => 
+	{
+		const { roomId } = req.params;
+		const room = rooms.get(roomId);
+
+		if (!room)
+		{
+			return res.status(404).json({ error: 'Room not found' });
+		}
+
+		res.status(200).json(room.getConsumersStats());
+	});
+
+	// Specific Producer Stats
+	expressApp.get('/analytics/rooms/:roomId/producers/:producerId', (req, res) => 
+	{
+		const { roomId, producerId } = req.params;
+		const room = rooms.get(roomId);
+
+		if (!room)
+		{
+			return res.status(404).json({ error: 'Room not found' });
+		}
+
+		const stats = room.getProducerStats(producerId);
+
+		if (!stats)
+		{
+			return res.status(404).json({ error: 'Producer not found' });
+		}
+
+		res.status(200).json(stats);
+	});
+
+	// Specific Consumer Stats
+	expressApp.get('/analytics/rooms/:roomId/consumers/:consumerId', (req, res) => 
+	{
+		const { roomId, consumerId } = req.params;
+		const room = rooms.get(roomId);
+
+		if (!room)
+		{
+			return res.status(404).json({ error: 'Room not found' });
+		}
+
+		const stats = room.getConsumerStats(consumerId);
+
+		if (!stats)
+		{
+			return res.status(404).json({ error: 'Consumer not found' });
+		}
+
+		res.status(200).json(stats);
+	});
 
 	/**
 	 * For every API request, verify that the roomId in the path matches and
