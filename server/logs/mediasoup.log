@@ -1,0 +1,298 @@
+process.env.DEBUG: mediasoup-demo-server:INFO* *WARN* *ERROR*
+config.js:
+{
+  "domain": "localhost",
+  "https": {
+    "listenIp": "0.0.0.0",
+    "listenPort": 4443,
+    "tls": {
+      "cert": "/Users/aviralsinghpal/Documents/GitHub/mediasoup-vite/server/certs/fullchain.pem",
+      "key": "/Users/aviralsinghpal/Documents/GitHub/mediasoup-vite/server/certs/privkey.pem"
+    }
+  },
+  "mediasoup": {
+    "numWorkers": 8,
+    "workerSettings": {
+      "logLevel": "warn",
+      "logTags": [
+        "info",
+        "ice",
+        "dtls",
+        "rtp",
+        "srtp",
+        "rtcp",
+        "rtx",
+        "bwe",
+        "score",
+        "simulcast",
+        "svc",
+        "sctp"
+      ],
+      "disableLiburing": false
+    },
+    "routerOptions": {
+      "mediaCodecs": [
+        {
+          "kind": "audio",
+          "mimeType": "audio/opus",
+          "clockRate": 48000,
+          "channels": 2,
+          "parameters": {
+            "sprop-stereo": 1,
+            "useinbandfec": 1,
+            "usedtx": 1
+          }
+        },
+        {
+          "kind": "video",
+          "mimeType": "video/VP8",
+          "clockRate": 90000,
+          "parameters": {
+            "x-google-start-bitrate": 1500,
+            "x-google-max-bitrate": 3000,
+            "x-google-min-bitrate": 500
+          }
+        },
+        {
+          "kind": "video",
+          "mimeType": "video/VP9",
+          "clockRate": 90000,
+          "parameters": {
+            "profile-id": 2,
+            "x-google-start-bitrate": 1500,
+            "x-google-max-bitrate": 4000,
+            "x-google-min-bitrate": 500
+          }
+        },
+        {
+          "kind": "video",
+          "mimeType": "video/h264",
+          "clockRate": 90000,
+          "parameters": {
+            "packetization-mode": 1,
+            "profile-level-id": "4d0032",
+            "level-asymmetry-allowed": 1,
+            "x-google-start-bitrate": 1500,
+            "x-google-max-bitrate": 3500,
+            "x-google-min-bitrate": 500
+          }
+        },
+        {
+          "kind": "video",
+          "mimeType": "video/h264",
+          "clockRate": 90000,
+          "parameters": {
+            "packetization-mode": 1,
+            "profile-level-id": "42e01f",
+            "level-asymmetry-allowed": 1,
+            "x-google-start-bitrate": 1500,
+            "x-google-max-bitrate": 3000,
+            "x-google-min-bitrate": 500
+          }
+        }
+      ]
+    },
+    "webRtcServerOptions": {
+      "listenInfos": [
+        {
+          "protocol": "udp",
+          "ip": "0.0.0.0",
+          "announcedAddress": "192.168.68.72",
+          "port": 44444
+        },
+        {
+          "protocol": "tcp",
+          "ip": "0.0.0.0",
+          "announcedAddress": "192.168.68.72",
+          "port": 44444
+        }
+      ]
+    },
+    "webRtcTransportOptions": {
+      "listenInfos": [
+        {
+          "protocol": "udp",
+          "ip": "0.0.0.0",
+          "announcedAddress": "192.168.68.72",
+          "portRange": {
+            "min": 40000,
+            "max": 49999
+          }
+        },
+        {
+          "protocol": "tcp",
+          "ip": "0.0.0.0",
+          "announcedAddress": "192.168.68.72",
+          "portRange": {
+            "min": 40000,
+            "max": 49999
+          }
+        }
+      ],
+      "initialAvailableOutgoingBitrate": 1500000,
+      "minimumAvailableOutgoingBitrate": 800000,
+      "maxSctpMessageSize": 262144,
+      "maxIncomingBitrate": 2000000,
+      "iceConsentTimeout": 30,
+      "iceCandidateIgnorePorts": [
+        4444,
+        5060,
+        5061
+      ],
+      "iceCheckingTimeoutMs": 20000,
+      "iceDisconnectedTimeoutMs": 10000,
+      "iceFailedTimeoutMs": 30000,
+      "enableRemb": true,
+      "enableTransportCc": true,
+      "dtlsRole": "auto",
+      "numSctpStreams": {
+        "OS": 1024,
+        "MIS": 1024
+      }
+    },
+    "plainTransportOptions": {
+      "listenInfo": {
+        "protocol": "udp",
+        "ip": "0.0.0.0",
+        "announcedAddress": "192.168.68.72",
+        "portRange": {
+          "min": 40000,
+          "max": 49999
+        }
+      },
+      "maxSctpMessageSize": 262144
+    }
+  }
+}
+2025-08-08T08:06:44.419Z mediasoup-demo-server:INFO running 8 mediasoup Workers...
+2025-08-08T08:06:44.514Z mediasoup-demo-server:INFO creating Express app...
+2025-08-08T08:06:44.515Z mediasoup-demo-server:INFO running an HTTPS server...
+2025-08-08T08:06:44.527Z mediasoup-demo-server:INFO Server is running at https://0.0.0.0:4443
+2025-08-08T08:06:44.527Z mediasoup-demo-server:INFO running protoo WebSocketServer...
+2025-08-08T08:06:45.079Z mediasoup-demo-server:INFO creating a new Room [roomId:hztp8pdv]
+2025-08-08T08:06:45.080Z mediasoup-demo-server:INFO:Room create() [roomId:hztp8pdv]
+2025-08-08T08:06:45.095Z mediasoup-demo-server:INFO:Room Starting room monitoring [roomId:hztp8pdv]
+2025-08-08T08:06:50.964Z mediasoup-demo-server:INFO protoo connection request [roomId:hztp8pdv, peerId:mwszuj8k, address:127.0.0.1, origin:https://localhost:3000]
+2025-08-08T08:06:52.442Z mediasoup-demo-server:INFO protoo connection request [roomId:hztp8pdv, peerId:ayib5exx, address:127.0.0.1, origin:https://localhost:3000]
+2025-08-08T08:06:52.664Z mediasoup:WARN:Channel [pid:94024] RTC::Producer::ReceiveRtpPacket() | no stream found for received packet [ssrc:1652427795]
+2025-08-08T08:06:52.665Z mediasoup:WARN:Channel [pid:94024] RTC::Producer::ReceiveRtpPacket() | no stream found for received packet [ssrc:1652427795]
+2025-08-08T08:06:52.665Z mediasoup:WARN:Channel [pid:94024] RTC::Producer::ReceiveRtpPacket() | no stream found for received packet [ssrc:1652427795]
+2025-08-08T08:06:52.671Z mediasoup:WARN:Channel [pid:94024] RTC::Producer::ReceiveRtpPacket() | no stream found for received packet [ssrc:1652427795]
+2025-08-08T08:06:52.731Z mediasoup:WARN:Channel [pid:94024] RTC::Producer::ReceiveRtpPacket() | no stream found for received packet [ssrc:1960457818]
+2025-08-08T08:06:52.736Z mediasoup:WARN:Channel [pid:94024] RTC::Producer::ReceiveRtpPacket() | no stream found for received packet [ssrc:1960457818]
+2025-08-08T08:06:52.737Z mediasoup:WARN:Channel [pid:94024] RTC::Producer::ReceiveRtpPacket() | no stream found for received packet [ssrc:1960457818]
+2025-08-08T08:06:52.741Z mediasoup:WARN:Channel [pid:94024] RTC::Producer::ReceiveRtpPacket() | no stream found for received packet [ssrc:1960457818]
+2025-08-08T08:06:52.743Z mediasoup:WARN:Channel [pid:94024] RTC::Producer::ReceiveRtpPacket() | no stream found for received packet [ssrc:1960457818]
+2025-08-08T08:06:52.747Z mediasoup:WARN:Channel [pid:94024] RTC::Producer::ReceiveRtpPacket() | no stream found for received packet [ssrc:1960457818]
+2025-08-08T08:06:52.748Z mediasoup:WARN:Channel [pid:94024] RTC::Producer::ReceiveRtpPacket() | no stream found for received packet [ssrc:1960457818]
+2025-08-08T08:06:52.748Z mediasoup:WARN:Channel [pid:94024] RTC::Producer::ReceiveRtpPacket() | no stream found for received packet [ssrc:1960457818]
+2025-08-08T08:06:52.750Z mediasoup:WARN:Channel [pid:94024] RTC::Producer::ReceiveRtpPacket() | no stream found for received packet [ssrc:1960457818]
+2025-08-08T08:06:52.750Z mediasoup:WARN:Channel [pid:94024] RTC::Producer::ReceiveRtpPacket() | no stream found for received packet [ssrc:1960457818]
+2025-08-08T08:06:52.753Z mediasoup:WARN:Channel [pid:94024] RTC::Producer::ReceiveRtpPacket() | no stream found for received packet [ssrc:1960457818]
+2025-08-08T08:06:52.753Z mediasoup:WARN:Channel [pid:94024] RTC::Producer::ReceiveRtpPacket() | no stream found for received packet [ssrc:1960457818]
+2025-08-08T08:06:52.757Z mediasoup:WARN:Channel [pid:94024] RTC::Producer::ReceiveRtpPacket() | no stream found for received packet [ssrc:1960457818]
+2025-08-08T08:06:52.757Z mediasoup:WARN:Channel [pid:94024] RTC::Producer::ReceiveRtpPacket() | no stream found for received packet [ssrc:1960457818]
+2025-08-08T08:08:13.263Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:493999786, now_ms:493999816]
+2025-08-08T08:08:13.278Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:493999788, now_ms:493999821]
+2025-08-08T08:08:13.278Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:493999790, now_ms:493999828]
+2025-08-08T08:08:13.278Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:493999792, now_ms:493999842]
+2025-08-08T08:08:13.288Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:493999794, now_ms:493999847]
+2025-08-08T08:08:13.288Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:493999796, now_ms:493999853]
+2025-08-08T08:08:13.317Z mediasoup:WARN:Channel [pid:94024] RTC::TransportCongestionControlClient::MayEmitAvailableBitrateEvent() | high BWE value decrease detected, notifying the listener [now:2583024, before:6750000]
+2025-08-08T08:08:14.529Z mediasoup-demo-server:INFO Memory usage: 15 MB / 18 MB (86%)
+2025-08-08T08:08:14.529Z mediasoup-demo-server:WARN High memory usage detected (86%), forcing GC
+2025-08-08T08:08:14.544Z mediasoup-demo-server:INFO Manual garbage collection triggered at 86% usage
+2025-08-08T08:08:44.458Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94024]: { ru_utime: 1304, ru_stime: 2335, ru_maxrss: 9040, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 2254, ru_majflt: 363, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 30615, ru_msgrcv: 60401, ru_nsignals: 0, ru_nvcsw: 11, ru_nivcsw: 66538 }
+2025-08-08T08:08:44.460Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94024]: { pid: 94024, webRtcServerIds: [ '4a6734de-f1bd-4381-80d9-79f8dc47c777' ], routerIds: [ '8d6ed48a-bebc-40bd-b839-2657b6e2ffba' ], channelMessageHandlers: { channelRequestHandlers: [ '8d6ed48a-bebc-40bd-b839-2657b6e2ffba', '6f7d8c4e-fee9-40e2-a9d4-a597f23308e2', '759274b5-25a2-47ac-ad9c-080dafbc4283', '7c420239-2886-40d8-af30-c8feb2799457', '601afa4a-71c7-429d-8d51-69dda59c037e', 'c91a0098-ae23-4d98-b52e-899e16d41aa3', 'd53bd40c-2b35-433b-a86d-8023433609cf', '94b93bf3-f22d-45a7-8227-05eec8322eba', '83dc3239-ea51-4d11-8b4d-73c61df06d4b', '07f32c1e-207d-4e50-897f-4dadea2f124b', '5f1860f9-b613-4b47-bbec-fac8bba9d8fe', 'dba6f889-02ab-47fd-bca5-72b62a7446e5', '6b348784-19b8-4e95-934f-6179bc0e2ea4', 'afe0a7ff-07e3-490d-8b03-a46568f2bc50', '2581d0ae-a6f1-40c7-a95a-4e002e94297e', '7b1096e0-f7a4-46e2-af08-2a96765bdf72', '362def4c-caa5-4e32-ab2a-58453165c0fc', '65d620f1-83a2-4749-b1c3-f41da28dc979', '78ab3770-2bf3-400b-b75e-41b0cb8487f0', '4a6734de-f1bd-4381-80d9-79f8dc47c777', '3ab45567-29e4-457f-967a-914dbe1a92be', '3150068f-a512-42be-9b06-56de94a47604', '4eedee21-f6bb-4393-be4f-f62a32dcae03', 'c8c623cc-411e-4519-a9ae-db95db4b56d2', '490516c7-e79b-47e9-9569-ee954e536ee0', '614be0d0-cc98-4530-ae06-f05fa9338fb6', 'e8d6e2de-f5e1-49d8-a142-f060e4e2f95f', '5750a650-9d41-461d-8000-0cb7a9fca1f1' ], channelNotificationHandlers: [ '6f7d8c4e-fee9-40e2-a9d4-a597f23308e2', '759274b5-25a2-47ac-ad9c-080dafbc4283', '65d620f1-83a2-4749-b1c3-f41da28dc979', '94b93bf3-f22d-45a7-8227-05eec8322eba', 'c91a0098-ae23-4d98-b52e-899e16d41aa3', '78ab3770-2bf3-400b-b75e-41b0cb8487f0', '7b1096e0-f7a4-46e2-af08-2a96765bdf72', '4eedee21-f6bb-4393-be4f-f62a32dcae03', '3150068f-a512-42be-9b06-56de94a47604', '5f1860f9-b613-4b47-bbec-fac8bba9d8fe', '614be0d0-cc98-4530-ae06-f05fa9338fb6', 'e8d6e2de-f5e1-49d8-a142-f060e4e2f95f', 'c8c623cc-411e-4519-a9ae-db95db4b56d2', 'afe0a7ff-07e3-490d-8b03-a46568f2bc50' ] } }
+2025-08-08T08:08:44.463Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94025]: { ru_utime: 6, ru_stime: 1, ru_maxrss: 6256, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 495, ru_majflt: 52, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 2, ru_msgrcv: 2, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 17 }
+2025-08-08T08:08:44.463Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94025]: { pid: 94025, webRtcServerIds: [ '30b7c40a-9481-4037-8011-4206f2e94f6f' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ '30b7c40a-9481-4037-8011-4206f2e94f6f' ], channelNotificationHandlers: [] } }
+2025-08-08T08:08:44.472Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94026]: { ru_utime: 6, ru_stime: 1, ru_maxrss: 6384, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 530, ru_majflt: 29, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 2, ru_msgrcv: 2, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 19 }
+2025-08-08T08:08:44.472Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94026]: { pid: 94026, webRtcServerIds: [ '40d719a2-6bab-4912-b194-3b69326e3ffe' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ '40d719a2-6bab-4912-b194-3b69326e3ffe' ], channelNotificationHandlers: [] } }
+2025-08-08T08:08:44.480Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94027]: { ru_utime: 6, ru_stime: 1, ru_maxrss: 6304, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 527, ru_majflt: 27, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 2, ru_msgrcv: 2, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 13 }
+2025-08-08T08:08:44.480Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94027]: { pid: 94027, webRtcServerIds: [ 'f4181d1e-4082-4545-ac48-7443aa96b5a9' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ 'f4181d1e-4082-4545-ac48-7443aa96b5a9' ], channelNotificationHandlers: [] } }
+2025-08-08T08:08:44.489Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94028]: { ru_utime: 6, ru_stime: 1, ru_maxrss: 6352, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 530, ru_majflt: 27, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 2, ru_msgrcv: 2, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 21 }
+2025-08-08T08:08:44.490Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94028]: { pid: 94028, webRtcServerIds: [ '16360aa4-74e8-469d-b0be-d3b9e87bf557' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ '16360aa4-74e8-469d-b0be-d3b9e87bf557' ], channelNotificationHandlers: [] } }
+2025-08-08T08:08:44.497Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94029]: { ru_utime: 6, ru_stime: 1, ru_maxrss: 6288, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 528, ru_majflt: 27, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 2, ru_msgrcv: 2, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 14 }
+2025-08-08T08:08:44.497Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94029]: { pid: 94029, webRtcServerIds: [ '2ae627b6-148b-425d-aa8b-b34c9ea518b2' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ '2ae627b6-148b-425d-aa8b-b34c9ea518b2' ], channelNotificationHandlers: [] } }
+2025-08-08T08:08:44.505Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94030]: { ru_utime: 6, ru_stime: 1, ru_maxrss: 6352, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 530, ru_majflt: 27, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 2, ru_msgrcv: 2, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 16 }
+2025-08-08T08:08:44.505Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94030]: { pid: 94030, webRtcServerIds: [ '7d82d0dd-2654-4301-9c48-1efa78cd67b9' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ '7d82d0dd-2654-4301-9c48-1efa78cd67b9' ], channelNotificationHandlers: [] } }
+2025-08-08T08:08:44.514Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94031]: { ru_utime: 6, ru_stime: 1, ru_maxrss: 6288, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 526, ru_majflt: 27, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 2, ru_msgrcv: 2, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 24 }
+2025-08-08T08:08:44.514Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94031]: { pid: 94031, webRtcServerIds: [ 'e47038d5-def2-4823-997f-fc21c60c4bcb' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ 'e47038d5-def2-4823-997f-fc21c60c4bcb' ], channelNotificationHandlers: [] } }
+2025-08-08T08:08:44.528Z mediasoup-demo-server:INFO:Room logStatus() [roomId:hztp8pdv, protoo Peers:2]
+2025-08-08T08:08:45.097Z mediasoup-demo-server:INFO:Room Room stats [roomId:hztp8pdv, peers:2, transports:4, producers:4, consumers:4]
+2025-08-08T08:08:53.373Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494039842, now_ms:494039848]
+2025-08-08T08:08:53.373Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494039844, now_ms:494039856]
+2025-08-08T08:08:53.373Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494039846, now_ms:494039865]
+2025-08-08T08:08:53.373Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494039848, now_ms:494039865]
+2025-08-08T08:08:53.373Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494039850, now_ms:494039872]
+2025-08-08T08:08:53.373Z mediasoup:WARN:Channel [pid:94024] RTC::TransportCongestionControlClient::MayEmitAvailableBitrateEvent() | high BWE value decrease detected, notifying the listener [now:2925073, before:6750000]
+2025-08-08T08:09:28.308Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494074867, now_ms:494074871]
+2025-08-08T08:09:28.326Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494074869, now_ms:494074876]
+2025-08-08T08:09:28.326Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494074871, now_ms:494074881]
+2025-08-08T08:09:28.326Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494074873, now_ms:494074886]
+2025-08-08T08:09:28.326Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494074875, now_ms:494074891]
+2025-08-08T08:09:28.330Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494074877, now_ms:494074896]
+2025-08-08T08:09:28.356Z mediasoup:WARN:Channel [pid:94024] RTC::TransportCongestionControlClient::MayEmitAvailableBitrateEvent() | high BWE value decrease detected, notifying the listener [now:3584410, before:6048000]
+2025-08-08T08:09:44.528Z mediasoup-demo-server:INFO Memory usage: 16 MB / 18 MB (87%)
+2025-08-08T08:09:44.529Z mediasoup-demo-server:WARN High memory usage detected (87%), forcing GC
+2025-08-08T08:09:44.539Z mediasoup-demo-server:INFO Manual garbage collection triggered at 87% usage
+2025-08-08T08:09:53.318Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494099880, now_ms:494099884]
+2025-08-08T08:09:53.323Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494099882, now_ms:494099888]
+2025-08-08T08:09:53.327Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494099884, now_ms:494099893]
+2025-08-08T08:09:53.364Z mediasoup:WARN:Channel [pid:94024] RTC::TransportCongestionControlClient::MayEmitAvailableBitrateEvent() | high BWE value decrease detected, notifying the listener [now:4158571, before:6750000]
+2025-08-08T08:10:44.445Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94024]: { ru_utime: 2656, ru_stime: 4555, ru_maxrss: 9040, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 4306, ru_majflt: 367, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 59839, ru_msgrcv: 125116, ru_nsignals: 0, ru_nvcsw: 18, ru_nivcsw: 138934 }
+2025-08-08T08:10:44.447Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94024]: { pid: 94024, webRtcServerIds: [ '4a6734de-f1bd-4381-80d9-79f8dc47c777' ], routerIds: [ '8d6ed48a-bebc-40bd-b839-2657b6e2ffba' ], channelMessageHandlers: { channelRequestHandlers: [ '8d6ed48a-bebc-40bd-b839-2657b6e2ffba', '6f7d8c4e-fee9-40e2-a9d4-a597f23308e2', '759274b5-25a2-47ac-ad9c-080dafbc4283', '7c420239-2886-40d8-af30-c8feb2799457', '601afa4a-71c7-429d-8d51-69dda59c037e', 'c91a0098-ae23-4d98-b52e-899e16d41aa3', 'd53bd40c-2b35-433b-a86d-8023433609cf', '94b93bf3-f22d-45a7-8227-05eec8322eba', '83dc3239-ea51-4d11-8b4d-73c61df06d4b', '07f32c1e-207d-4e50-897f-4dadea2f124b', '5f1860f9-b613-4b47-bbec-fac8bba9d8fe', 'dba6f889-02ab-47fd-bca5-72b62a7446e5', '6b348784-19b8-4e95-934f-6179bc0e2ea4', 'afe0a7ff-07e3-490d-8b03-a46568f2bc50', '2581d0ae-a6f1-40c7-a95a-4e002e94297e', '7b1096e0-f7a4-46e2-af08-2a96765bdf72', '362def4c-caa5-4e32-ab2a-58453165c0fc', '65d620f1-83a2-4749-b1c3-f41da28dc979', '78ab3770-2bf3-400b-b75e-41b0cb8487f0', '4a6734de-f1bd-4381-80d9-79f8dc47c777', '3ab45567-29e4-457f-967a-914dbe1a92be', '3150068f-a512-42be-9b06-56de94a47604', '4eedee21-f6bb-4393-be4f-f62a32dcae03', 'c8c623cc-411e-4519-a9ae-db95db4b56d2', '490516c7-e79b-47e9-9569-ee954e536ee0', '614be0d0-cc98-4530-ae06-f05fa9338fb6', 'e8d6e2de-f5e1-49d8-a142-f060e4e2f95f', '5750a650-9d41-461d-8000-0cb7a9fca1f1' ], channelNotificationHandlers: [ '6f7d8c4e-fee9-40e2-a9d4-a597f23308e2', '759274b5-25a2-47ac-ad9c-080dafbc4283', '65d620f1-83a2-4749-b1c3-f41da28dc979', '94b93bf3-f22d-45a7-8227-05eec8322eba', 'c91a0098-ae23-4d98-b52e-899e16d41aa3', '78ab3770-2bf3-400b-b75e-41b0cb8487f0', '7b1096e0-f7a4-46e2-af08-2a96765bdf72', '4eedee21-f6bb-4393-be4f-f62a32dcae03', '3150068f-a512-42be-9b06-56de94a47604', '5f1860f9-b613-4b47-bbec-fac8bba9d8fe', '614be0d0-cc98-4530-ae06-f05fa9338fb6', 'e8d6e2de-f5e1-49d8-a142-f060e4e2f95f', 'c8c623cc-411e-4519-a9ae-db95db4b56d2', 'afe0a7ff-07e3-490d-8b03-a46568f2bc50' ] } }
+2025-08-08T08:10:44.452Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94025]: { ru_utime: 6, ru_stime: 2, ru_maxrss: 6256, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 526, ru_majflt: 56, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 4, ru_msgrcv: 4, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 26 }
+2025-08-08T08:10:44.453Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94025]: { pid: 94025, webRtcServerIds: [ '30b7c40a-9481-4037-8011-4206f2e94f6f' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ '30b7c40a-9481-4037-8011-4206f2e94f6f' ], channelNotificationHandlers: [] } }
+2025-08-08T08:10:44.460Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94026]: { ru_utime: 6, ru_stime: 1, ru_maxrss: 6384, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 552, ru_majflt: 33, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 4, ru_msgrcv: 4, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 25 }
+2025-08-08T08:10:44.461Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94026]: { pid: 94026, webRtcServerIds: [ '40d719a2-6bab-4912-b194-3b69326e3ffe' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ '40d719a2-6bab-4912-b194-3b69326e3ffe' ], channelNotificationHandlers: [] } }
+2025-08-08T08:10:44.469Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94027]: { ru_utime: 6, ru_stime: 1, ru_maxrss: 6304, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 553, ru_majflt: 29, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 4, ru_msgrcv: 4, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 15 }
+2025-08-08T08:10:44.469Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94027]: { pid: 94027, webRtcServerIds: [ 'f4181d1e-4082-4545-ac48-7443aa96b5a9' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ 'f4181d1e-4082-4545-ac48-7443aa96b5a9' ], channelNotificationHandlers: [] } }
+2025-08-08T08:10:44.478Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94028]: { ru_utime: 6, ru_stime: 1, ru_maxrss: 6352, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 571, ru_majflt: 29, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 4, ru_msgrcv: 4, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 26 }
+2025-08-08T08:10:44.478Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94028]: { pid: 94028, webRtcServerIds: [ '16360aa4-74e8-469d-b0be-d3b9e87bf557' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ '16360aa4-74e8-469d-b0be-d3b9e87bf557' ], channelNotificationHandlers: [] } }
+2025-08-08T08:10:44.486Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94029]: { ru_utime: 6, ru_stime: 1, ru_maxrss: 6288, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 556, ru_majflt: 29, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 4, ru_msgrcv: 4, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 17 }
+2025-08-08T08:10:44.486Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94029]: { pid: 94029, webRtcServerIds: [ '2ae627b6-148b-425d-aa8b-b34c9ea518b2' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ '2ae627b6-148b-425d-aa8b-b34c9ea518b2' ], channelNotificationHandlers: [] } }
+2025-08-08T08:10:44.493Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94030]: { ru_utime: 6, ru_stime: 1, ru_maxrss: 6352, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 565, ru_majflt: 29, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 4, ru_msgrcv: 4, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 18 }
+2025-08-08T08:10:44.494Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94030]: { pid: 94030, webRtcServerIds: [ '7d82d0dd-2654-4301-9c48-1efa78cd67b9' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ '7d82d0dd-2654-4301-9c48-1efa78cd67b9' ], channelNotificationHandlers: [] } }
+2025-08-08T08:10:44.503Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94031]: { ru_utime: 6, ru_stime: 2, ru_maxrss: 6288, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 555, ru_majflt: 29, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 4, ru_msgrcv: 4, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 29 }
+2025-08-08T08:10:44.503Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94031]: { pid: 94031, webRtcServerIds: [ 'e47038d5-def2-4823-997f-fc21c60c4bcb' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ 'e47038d5-def2-4823-997f-fc21c60c4bcb' ], channelNotificationHandlers: [] } }
+2025-08-08T08:10:44.516Z mediasoup-demo-server:INFO:Room logStatus() [roomId:hztp8pdv, protoo Peers:2]
+2025-08-08T08:10:45.084Z mediasoup-demo-server:INFO:Room Room stats [roomId:hztp8pdv, peers:2, transports:4, producers:4, consumers:4]
+2025-08-08T08:11:14.508Z mediasoup-demo-server:INFO Memory usage: 16 MB / 19 MB (85%)
+2025-08-08T08:11:14.509Z mediasoup-demo-server:WARN High memory usage detected (85%), forcing GC
+2025-08-08T08:11:14.517Z mediasoup-demo-server:INFO Manual garbage collection triggered at 85% usage
+2025-08-08T08:12:28.369Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494254948, now_ms:494254957]
+2025-08-08T08:12:28.374Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494254948, now_ms:494254957]
+2025-08-08T08:12:28.375Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494254950, now_ms:494254963]
+2025-08-08T08:12:28.375Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494254950, now_ms:494254963]
+2025-08-08T08:12:28.378Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494254952, now_ms:494254968]
+2025-08-08T08:12:28.378Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494254952, now_ms:494254968]
+2025-08-08T08:12:28.387Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494254954, now_ms:494254977]
+2025-08-08T08:12:28.387Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494254954, now_ms:494254977]
+2025-08-08T08:12:28.387Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494254956, now_ms:494254978]
+2025-08-08T08:12:28.391Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494254956, now_ms:494254981]
+2025-08-08T08:12:28.394Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494254958, now_ms:494254985]
+2025-08-08T08:12:28.396Z mediasoup:WARN:Channel [pid:94024] webrtc::BitrateProber::TimeUntilNextProbe() | probe delay too high [next_ms:494254958, now_ms:494254986]
+2025-08-08T08:12:28.416Z mediasoup:WARN:Channel [pid:94024] RTC::TransportCongestionControlClient::MayEmitAvailableBitrateEvent() | high BWE value decrease detected, notifying the listener [now:4755574, before:6750000]
+2025-08-08T08:12:28.482Z mediasoup:WARN:Channel [pid:94024] RTC::TransportCongestionControlClient::MayEmitAvailableBitrateEvent() | high BWE value decrease detected, notifying the listener [now:2434893, before:6750000]
+2025-08-08T08:12:44.433Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94024]: { ru_utime: 3891, ru_stime: 6659, ru_maxrss: 9040, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 6102, ru_majflt: 369, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 88953, ru_msgrcv: 190020, ru_nsignals: 0, ru_nvcsw: 21, ru_nivcsw: 211656 }
+2025-08-08T08:12:44.436Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94024]: { pid: 94024, webRtcServerIds: [ '4a6734de-f1bd-4381-80d9-79f8dc47c777' ], routerIds: [ '8d6ed48a-bebc-40bd-b839-2657b6e2ffba' ], channelMessageHandlers: { channelRequestHandlers: [ '8d6ed48a-bebc-40bd-b839-2657b6e2ffba', '6f7d8c4e-fee9-40e2-a9d4-a597f23308e2', '759274b5-25a2-47ac-ad9c-080dafbc4283', '7c420239-2886-40d8-af30-c8feb2799457', '601afa4a-71c7-429d-8d51-69dda59c037e', 'c91a0098-ae23-4d98-b52e-899e16d41aa3', 'd53bd40c-2b35-433b-a86d-8023433609cf', '94b93bf3-f22d-45a7-8227-05eec8322eba', '83dc3239-ea51-4d11-8b4d-73c61df06d4b', '07f32c1e-207d-4e50-897f-4dadea2f124b', '5f1860f9-b613-4b47-bbec-fac8bba9d8fe', 'dba6f889-02ab-47fd-bca5-72b62a7446e5', '6b348784-19b8-4e95-934f-6179bc0e2ea4', 'afe0a7ff-07e3-490d-8b03-a46568f2bc50', '2581d0ae-a6f1-40c7-a95a-4e002e94297e', '7b1096e0-f7a4-46e2-af08-2a96765bdf72', '362def4c-caa5-4e32-ab2a-58453165c0fc', '65d620f1-83a2-4749-b1c3-f41da28dc979', '78ab3770-2bf3-400b-b75e-41b0cb8487f0', '4a6734de-f1bd-4381-80d9-79f8dc47c777', '3ab45567-29e4-457f-967a-914dbe1a92be', '3150068f-a512-42be-9b06-56de94a47604', '4eedee21-f6bb-4393-be4f-f62a32dcae03', 'c8c623cc-411e-4519-a9ae-db95db4b56d2', '490516c7-e79b-47e9-9569-ee954e536ee0', '614be0d0-cc98-4530-ae06-f05fa9338fb6', 'e8d6e2de-f5e1-49d8-a142-f060e4e2f95f', '5750a650-9d41-461d-8000-0cb7a9fca1f1' ], channelNotificationHandlers: [ '6f7d8c4e-fee9-40e2-a9d4-a597f23308e2', '759274b5-25a2-47ac-ad9c-080dafbc4283', '65d620f1-83a2-4749-b1c3-f41da28dc979', '94b93bf3-f22d-45a7-8227-05eec8322eba', 'c91a0098-ae23-4d98-b52e-899e16d41aa3', '78ab3770-2bf3-400b-b75e-41b0cb8487f0', '7b1096e0-f7a4-46e2-af08-2a96765bdf72', '4eedee21-f6bb-4393-be4f-f62a32dcae03', '3150068f-a512-42be-9b06-56de94a47604', '5f1860f9-b613-4b47-bbec-fac8bba9d8fe', '614be0d0-cc98-4530-ae06-f05fa9338fb6', 'e8d6e2de-f5e1-49d8-a142-f060e4e2f95f', 'c8c623cc-411e-4519-a9ae-db95db4b56d2', 'afe0a7ff-07e3-490d-8b03-a46568f2bc50' ] } }
+2025-08-08T08:12:44.438Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94025]: { ru_utime: 6, ru_stime: 2, ru_maxrss: 6256, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 558, ru_majflt: 56, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 6, ru_msgrcv: 6, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 30 }
+2025-08-08T08:12:44.438Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94025]: { pid: 94025, webRtcServerIds: [ '30b7c40a-9481-4037-8011-4206f2e94f6f' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ '30b7c40a-9481-4037-8011-4206f2e94f6f' ], channelNotificationHandlers: [] } }
+2025-08-08T08:12:44.448Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94026]: { ru_utime: 6, ru_stime: 2, ru_maxrss: 6384, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 581, ru_majflt: 33, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 6, ru_msgrcv: 6, ru_nsignals: 0, ru_nvcsw: 1, ru_nivcsw: 28 }
+2025-08-08T08:12:44.449Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94026]: { pid: 94026, webRtcServerIds: [ '40d719a2-6bab-4912-b194-3b69326e3ffe' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ '40d719a2-6bab-4912-b194-3b69326e3ffe' ], channelNotificationHandlers: [] } }
+2025-08-08T08:12:44.456Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94027]: { ru_utime: 6, ru_stime: 1, ru_maxrss: 6304, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 583, ru_majflt: 29, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 6, ru_msgrcv: 6, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 17 }
+2025-08-08T08:12:44.456Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94027]: { pid: 94027, webRtcServerIds: [ 'f4181d1e-4082-4545-ac48-7443aa96b5a9' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ 'f4181d1e-4082-4545-ac48-7443aa96b5a9' ], channelNotificationHandlers: [] } }
+2025-08-08T08:12:44.467Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94028]: { ru_utime: 6, ru_stime: 2, ru_maxrss: 6352, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 602, ru_majflt: 29, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 6, ru_msgrcv: 6, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 30 }
+2025-08-08T08:12:44.467Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94028]: { pid: 94028, webRtcServerIds: [ '16360aa4-74e8-469d-b0be-d3b9e87bf557' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ '16360aa4-74e8-469d-b0be-d3b9e87bf557' ], channelNotificationHandlers: [] } }
+2025-08-08T08:12:44.474Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94029]: { ru_utime: 6, ru_stime: 1, ru_maxrss: 6288, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 587, ru_majflt: 29, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 6, ru_msgrcv: 6, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 19 }
+2025-08-08T08:12:44.474Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94029]: { pid: 94029, webRtcServerIds: [ '2ae627b6-148b-425d-aa8b-b34c9ea518b2' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ '2ae627b6-148b-425d-aa8b-b34c9ea518b2' ], channelNotificationHandlers: [] } }
+2025-08-08T08:12:44.480Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94030]: { ru_utime: 6, ru_stime: 1, ru_maxrss: 6352, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 591, ru_majflt: 29, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 6, ru_msgrcv: 6, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 20 }
+2025-08-08T08:12:44.481Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94030]: { pid: 94030, webRtcServerIds: [ '7d82d0dd-2654-4301-9c48-1efa78cd67b9' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ '7d82d0dd-2654-4301-9c48-1efa78cd67b9' ], channelNotificationHandlers: [] } }
+2025-08-08T08:12:44.491Z mediasoup-demo-server:INFO mediasoup Worker resource usage [pid:94031]: { ru_utime: 6, ru_stime: 2, ru_maxrss: 6288, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0, ru_minflt: 588, ru_majflt: 29, ru_nswap: 0, ru_inblock: 0, ru_oublock: 0, ru_msgsnd: 6, ru_msgrcv: 6, ru_nsignals: 0, ru_nvcsw: 0, ru_nivcsw: 34 }
+2025-08-08T08:12:44.492Z mediasoup-demo-server:INFO mediasoup Worker dump [pid:94031]: { pid: 94031, webRtcServerIds: [ 'e47038d5-def2-4823-997f-fc21c60c4bcb' ], routerIds: [], channelMessageHandlers: { channelRequestHandlers: [ 'e47038d5-def2-4823-997f-fc21c60c4bcb' ], channelNotificationHandlers: [] } }
+2025-08-08T08:12:44.503Z mediasoup-demo-server:INFO:Room logStatus() [roomId:hztp8pdv, protoo Peers:2]
+2025-08-08T08:12:44.505Z mediasoup-demo-server:INFO Memory usage: 16 MB / 18 MB (86%)
+2025-08-08T08:12:44.505Z mediasoup-demo-server:WARN High memory usage detected (86%), forcing GC
+2025-08-08T08:12:44.517Z mediasoup-demo-server:INFO Manual garbage collection triggered at 86% usage
+2025-08-08T08:12:45.073Z mediasoup-demo-server:INFO:Room Room stats [roomId:hztp8pdv, peers:2, transports:4, producers:4, consumers:4]

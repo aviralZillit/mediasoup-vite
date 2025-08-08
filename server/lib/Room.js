@@ -137,11 +137,41 @@ class Room extends EventEmitter
 		// @type {Boolean}
 		this._networkThrottled = false;
 
+		// Real-time analytics and monitoring (Ultra Memory Optimized)
+		this._analytics = {
+			roomCreatedAt    : Date.now(),
+			totalPeers       : 0,
+			activePeers      : 0,
+			totalProducers   : 0,
+			totalConsumers   : 0,
+			totalTransports  : 0,
+			dataTransferred  : { sent: 0, received: 0 },
+			errors           : [], // Max 3 entries (ultra-aggressive)
+			connectionEvents : [], // Max 5 entries (ultra-aggressive)
+			peerEvents       : [] // Max 3 entries (ultra-aggressive)
+		};
+
+		// Ultra-aggressive memory management settings
+		this._maxErrors = 3;
+		this._maxConnectionEvents = 5;
+		this._maxPeerEvents = 3;
+		this._analyticsCleanupInterval = 120000; // 2 minutes (more frequent cleanup)
+
+		// Monitoring intervals (ultra-conservative frequency)
+		this._monitoringIntervals = new Map();
+		this._monitoringFrequency = 60000; // 60 seconds (reduced from 15s)
+
+		// Connection quality monitoring (minimal data)
+		this._connectionQuality = new Map(); // peerId -> quality metrics
+
 		// Handle audioLevelObserver.
 		this._handleAudioLevelObserver();
 
 		// Handle activeSpeakerObserver.
 		this._handleActiveSpeakerObserver();
+
+		// Start comprehensive monitoring
+		this._startRoomMonitoring();
 
 		// For debugging.
 		global.audioLevelObserver = this._audioLevelObserver;
@@ -268,6 +298,15 @@ class Room extends EventEmitter
 				return;
 
 			logger.debug('protoo Peer "close" event [peerId:%s]', peer.id);
+
+			// Record peer departure analytics
+			this._recordEvent('peer_left', 
+				{
+					peerId      : peer.id,
+					displayName : peer.data.displayName,
+					duration    : peer.data.joined ? Date.now() - peer.data.joinTime : 0,
+					reason      : 'peer_disconnected'
+				});
 
 			// If the Peer was joined, notify all Peers.
 			if (peer.data.joined)
@@ -896,6 +935,19 @@ class Room extends EventEmitter
 				peer.data.device = device;
 				peer.data.rtpCapabilities = rtpCapabilities;
 				peer.data.sctpCapabilities = sctpCapabilities;
+				peer.data.joinTime = Date.now(); // Track join time
+
+				// Update analytics
+				this._analytics.totalPeers++;
+
+				// Record peer join
+				this._recordEvent('peer_joined', 
+					{
+						peerId      : peer.id,
+						displayName : displayName,
+						device      : device,
+						timestamp   : Date.now()
+					});
 
 				// Tell the new Peer about already joined Peers.
 				// And also create Consumers for existing Producers.
@@ -1766,6 +1818,17 @@ class Room extends EventEmitter
 					{
 						// Remove from its map.
 						consumerPeer.data.consumers.delete(consumer.id);
+			
+						// Record consumer drop
+						this._recordEvent('consumer_dropped', 
+							{
+								consumerId   : consumer.id,
+								peerId       : consumerPeer.id,
+								producerId   : producer.id,
+								producerPeer : producerPeer.id,
+								reason       : 'transport_closed',
+								severity     : 'high'
+							});
 					});
 
 					consumer.on('producerclose', () =>
@@ -1773,11 +1836,20 @@ class Room extends EventEmitter
 						// Remove from its map.
 						consumerPeer.data.consumers.delete(consumer.id);
 
+						// Record consumer drop due to producer close
+						this._recordEvent('consumer_dropped', 
+							{
+								consumerId   : consumer.id,
+								peerId       : consumerPeer.id,
+								producerId   : producer.id,
+								producerPeer : producerPeer.id,
+								reason       : 'producer_closed',
+								severity     : 'medium'
+							});
+
 						consumerPeer.notify('consumerClosed', { consumerId: consumer.id })
 							.catch(() => {});
-					});
-
-					consumer.on('producerpause', () =>
+					});					consumer.on('producerpause', () =>
 					{
 						consumerPeer.notify('consumerPaused', { consumerId: consumer.id })
 							.catch(() => {});
@@ -1960,6 +2032,657 @@ class Room extends EventEmitter
 		{
 			logger.warn('_createDataConsumer() | failed:%o', error);
 		}
+	}
+
+	/**
+	 * Start comprehensive room monitoring
+	 */
+	_startRoomMonitoring()
+	{
+		logger.info('Starting room monitoring [roomId:%s]', this._roomId);
+
+		// Monitor room stats (ultra-conservative frequency)
+		const roomStatsInterval = setInterval(() =>
+		{
+			this._collectRoomStats();
+		}, 120000); // Increased from 45s to 2 minutes
+
+		this._monitoringIntervals.set('roomStats', roomStatsInterval);
+
+		// Monitor connection quality (optimized frequency)
+		const qualityInterval = setInterval(() =>
+		{
+			this._monitorConnectionQuality();
+		}, this._monitoringFrequency); // 15s instead of 10s
+
+		this._monitoringIntervals.set('connectionQuality', qualityInterval);
+
+		// Log detailed analytics (ultra-conservative frequency)
+		const analyticsInterval = setInterval(() =>
+		{
+			this._logDetailedAnalytics();
+		}, 600000); // Increased from 5m to 10m
+
+		this._monitoringIntervals.set('analytics', analyticsInterval);
+
+		// Memory cleanup interval
+		const cleanupInterval = setInterval(() =>
+		{
+			this._cleanupAnalyticsMemory();
+		}, this._analyticsCleanupInterval);
+
+		this._monitoringIntervals.set('cleanup', cleanupInterval);
+
+		this._monitoringIntervals.set('analytics', analyticsInterval);
+	}
+
+	/**
+	 * Collect comprehensive room statistics
+	 */
+	_collectRoomStats()
+	{
+		const joinedPeers = this._getJoinedPeers();
+		
+		this._analytics.activePeers = joinedPeers.length;
+		this._analytics.totalTransports = 0;
+		this._analytics.totalProducers = 0;
+		this._analytics.totalConsumers = 0;
+
+		// Collect per-peer statistics
+		joinedPeers.forEach((peer) =>
+		{
+			this._analytics.totalTransports += peer.data.transports.size;
+			this._analytics.totalProducers += peer.data.producers.size;
+			this._analytics.totalConsumers += peer.data.consumers.size;
+
+			// Monitor each transport
+			peer.data.transports.forEach((transport) =>
+			{
+				this._monitorTransportHealth(transport, peer);
+			});
+
+			// Monitor each producer
+			peer.data.producers.forEach((producer) =>
+			{
+				this._monitorProducerHealth(producer, peer);
+			});
+
+			// Monitor each consumer
+			peer.data.consumers.forEach((consumer) =>
+			{
+				this._monitorConsumerHealth(consumer, peer);
+			});
+		});
+
+		// Log current room status
+		logger.info(
+			'Room stats [roomId:%s, peers:%d, transports:%d, producers:%d, consumers:%d]',
+			this._roomId,
+			this._analytics.activePeers,
+			this._analytics.totalTransports,
+			this._analytics.totalProducers,
+			this._analytics.totalConsumers
+		);
+	}
+
+	/**
+	 * Monitor transport health
+	 */
+	_monitorTransportHealth(transport, peer)
+	{
+		// Get transport stats
+		transport.getStats()
+			.then((stats) =>
+			{
+				for (const stat of stats)
+				{
+					if (stat.type === 'transport')
+					{
+						const transportInfo = 
+						{
+							transportId     : transport.id,
+							peerId          : peer.id,
+							bytesReceived   : stat.bytesReceived || 0,
+							bytesSent       : stat.bytesSent || 0,
+							packetsReceived : stat.packetsReceived || 0,
+							packetsSent     : stat.packetsSent || 0,
+							timestamp       : Date.now()
+						};
+
+						// Update global data transfer metrics
+						this._analytics.dataTransferred.received += stat.bytesReceived || 0;
+						this._analytics.dataTransferred.sent += stat.bytesSent || 0;
+
+						// Check for transport issues
+						if (stat.packetLossPercentage > 5)
+						{
+							this._recordEvent('transport_high_packet_loss', 
+								{
+									transportId : transport.id,
+									peerId      : peer.id,
+									packetLoss  : stat.packetLossPercentage,
+									severity    : 'warning'
+								});
+						}
+					}
+				}
+			})
+			.catch((error) =>
+			{
+				this._recordError('transport_stats_failed', error, 
+					{
+						transportId : transport.id,
+						peerId      : peer.id
+					});
+			});
+	}
+
+	/**
+	 * Monitor producer health
+	 */
+	_monitorProducerHealth(producer, peer)
+	{
+		// Get producer stats
+		producer.getStats()
+			.then((stats) =>
+			{
+				for (const stat of stats)
+				{
+					if (stat.type === 'outbound-rtp')
+					{
+						const producerInfo = 
+						{
+							producerId  : producer.id,
+							peerId      : peer.id,
+							kind        : producer.kind,
+							packetsSent : stat.packetsSent || 0,
+							bytesSent   : stat.bytesSent || 0,
+							packetsLost : stat.packetsLost || 0,
+							nackCount   : stat.nackCount || 0,
+							timestamp   : Date.now()
+						};
+
+						// Check for producer issues
+						if (stat.packetsLost > 50)
+						{
+							this._recordEvent('producer_high_packet_loss', 
+								{
+									producerId  : producer.id,
+									peerId      : peer.id,
+									kind        : producer.kind,
+									packetsLost : stat.packetsLost,
+									severity    : 'warning'
+								});
+						}
+
+						if (producer.kind === 'video' && stat.framesPerSecond < 15)
+						{
+							this._recordEvent('producer_low_framerate', 
+								{
+									producerId : producer.id,
+									peerId     : peer.id,
+									framerate  : stat.framesPerSecond,
+									severity   : 'warning'
+								});
+						}
+					}
+				}
+			})
+			.catch((error) =>
+			{
+				this._recordError('producer_stats_failed', error, 
+					{
+						producerId : producer.id,
+						peerId     : peer.id
+					});
+			});
+	}
+
+	/**
+	 * Monitor consumer health
+	 */
+	_monitorConsumerHealth(consumer, peer)
+	{
+		// Get consumer stats
+		consumer.getStats()
+			.then((stats) =>
+			{
+				for (const stat of stats)
+				{
+					if (stat.type === 'inbound-rtp')
+					{
+						const consumerInfo = 
+						{
+							consumerId      : consumer.id,
+							peerId          : peer.id,
+							kind            : consumer.kind,
+							packetsReceived : stat.packetsReceived || 0,
+							bytesReceived   : stat.bytesReceived || 0,
+							packetsLost     : stat.packetsLost || 0,
+							jitter          : stat.jitter || 0,
+							timestamp       : Date.now()
+						};
+
+						// Check for consumer issues
+						if (stat.packetsLost > 50)
+						{
+							this._recordEvent('consumer_high_packet_loss', 
+								{
+									consumerId  : consumer.id,
+									peerId      : peer.id,
+									kind        : consumer.kind,
+									packetsLost : stat.packetsLost,
+									severity    : 'warning'
+								});
+						}
+
+						// Check audio quality issues
+						if (consumer.kind === 'audio' && stat.jitter > 0.1)
+						{
+							this._recordEvent('consumer_high_jitter', 
+								{
+									consumerId : consumer.id,
+									peerId     : peer.id,
+									jitter     : stat.jitter,
+									severity   : 'warning'
+								});
+						}
+					}
+				}
+			})
+			.catch((error) =>
+			{
+				this._recordError('consumer_stats_failed', error, 
+					{
+						consumerId : consumer.id,
+						peerId     : peer.id
+					});
+			});
+	}
+
+	/**
+	 * Monitor connection quality for all peers
+	 */
+	_monitorConnectionQuality()
+	{
+		const joinedPeers = this._getJoinedPeers();
+
+		joinedPeers.forEach((peer) =>
+		{
+			const qualityMetrics = this._connectionQuality.get(peer.id) || 
+			{
+				score      : 5,
+				rtt        : 0,
+				packetLoss : 0,
+				lastUpdate : Date.now(),
+				issues     : []
+			};
+
+			// Calculate quality score based on recent issues
+			let qualityScore = 5;
+			const recentIssues = this._analytics.connectionEvents.filter(
+				(event) => event.peerId === peer.id && 
+				Date.now() - event.timestamp < 60000 // Last minute
+			);
+
+			// Reduce score based on issues
+			recentIssues.forEach((issue) =>
+			{
+				switch (issue.type)
+				{
+					case 'transport_high_packet_loss':
+					case 'producer_high_packet_loss':
+					case 'consumer_high_packet_loss':
+						qualityScore -= 1;
+						break;
+					case 'producer_low_framerate':
+					case 'consumer_high_jitter':
+						qualityScore -= 0.5;
+						break;
+				}
+			});
+
+			qualityScore = Math.max(1, Math.min(5, qualityScore));
+			qualityMetrics.score = qualityScore;
+			qualityMetrics.lastUpdate = Date.now();
+			qualityMetrics.issues = recentIssues.slice(-5); // Keep last 5 issues
+
+			this._connectionQuality.set(peer.id, qualityMetrics);
+
+			// Notify peer about connection quality
+			if (qualityScore < 3)
+			{
+				peer.notify('connectionQualityChanged', 
+					{
+						quality : qualityScore,
+						issues  : recentIssues.map((issue) => issue.type)
+					}).catch(() => {});
+			}
+		});
+	}
+
+	/**
+	 * Record events for analytics
+	 */
+	_recordEvent(type, data)
+	{
+		const event = 
+		{
+			type,
+			timestamp : Date.now(),
+			...data
+		};
+
+		this._analytics.connectionEvents.push(event);
+
+		// Keep only recent events (memory optimized)
+		if (this._analytics.connectionEvents.length > this._maxConnectionEvents)
+		{
+			this._analytics.connectionEvents = 
+				this._analytics.connectionEvents.slice(-this._maxConnectionEvents);
+		}
+
+		// Only log important events to reduce log noise
+		if (type.includes('drop') || type.includes('error') || type.includes('fail'))
+		{
+			logger.warn('Event recorded [roomId:%s, type:%s, data:%o]', 
+				this._roomId, type, data);
+		}
+
+		// Emit event for external monitoring
+		this.emit('analyticsEvent', event);
+	}
+
+	/**
+	 * Record errors for analytics
+	 */
+	_recordError(type, error, context = {})
+	{
+		const errorEvent = 
+		{
+			type,
+			timestamp : Date.now(),
+			message   : error.message || error,
+			stack     : error.stack,
+			context
+		};
+
+		this._analytics.errors.push(errorEvent);
+
+		// Keep only recent errors (memory optimized)
+		if (this._analytics.errors.length > this._maxErrors)
+		{
+			this._analytics.errors = this._analytics.errors.slice(-this._maxErrors);
+		}
+
+		logger.error('Error recorded [roomId:%s, type:%s, error:%s, context:%o]', 
+			this._roomId, type, error.message || error, context);
+
+		// Emit error for external monitoring
+		this.emit('analyticsError', errorEvent);
+	}
+
+	/**
+	 * Log detailed analytics
+	 */
+	_logDetailedAnalytics()
+	{
+		const uptimeMinutes = 
+			Math.floor((Date.now() - this._analytics.roomCreatedAt) / 60000);
+		const joinedPeers = this._getJoinedPeers();
+
+		const analytics = 
+		{
+			roomId            : this._roomId,
+			uptime            : uptimeMinutes,
+			currentPeers      : joinedPeers.length,
+			totalPeersJoined  : this._analytics.totalPeers,
+			totalTransports   : this._analytics.totalTransports,
+			totalProducers    : this._analytics.totalProducers,
+			totalConsumers    : this._analytics.totalConsumers,
+			dataTransferred   : this._analytics.dataTransferred,
+			recentErrors      : this._analytics.errors.slice(-10),
+			recentEvents      : this._analytics.connectionEvents.slice(-20),
+			connectionQuality : Array.from(this._connectionQuality.entries())
+				.map(([ peerId, quality ]) => ({
+					peerId,
+					score  : quality.score,
+					issues : quality.issues.length
+				}))
+		};
+
+		logger.info('Room analytics [roomId:%s]:\n%s', 
+			this._roomId, JSON.stringify(analytics, null, 2));
+
+		// Emit analytics for external monitoring
+		this.emit('roomAnalytics', analytics);
+	}
+
+	/**
+	 * Get room analytics (public method)
+	 */
+	getRoomAnalytics()
+	{
+		const joinedPeers = this._getJoinedPeers();
+		
+		return {
+			roomId            : this._roomId,
+			uptime            : Date.now() - this._analytics.roomCreatedAt,
+			currentPeers      : joinedPeers.length,
+			totalPeersJoined  : this._analytics.totalPeers,
+			totalTransports   : this._analytics.totalTransports,
+			totalProducers    : this._analytics.totalProducers,
+			totalConsumers    : this._analytics.totalConsumers,
+			dataTransferred   : this._analytics.dataTransferred,
+			recentErrors      : this._analytics.errors.slice(-5),
+			recentEvents      : this._analytics.connectionEvents.slice(-10),
+			connectionQuality : Array.from(this._connectionQuality.entries())
+				.map(([ peerId, quality ]) => 
+				{
+					const peerData = joinedPeers.find((p) => p.id === peerId);
+					const displayName = peerData && peerData.data ? peerData.data.displayName : 'Unknown';
+				
+					return {
+						peerId       : peerId,
+						displayName  : displayName,
+						score        : quality.score,
+						lastUpdate   : quality.lastUpdate,
+						recentIssues : quality.issues.length
+					};
+				})
+		};
+	}
+
+	/**
+	 * Clean up analytics memory to prevent memory leaks
+	 */
+	_cleanupAnalyticsMemory()
+	{
+		const now = Date.now();
+		const oldEventThreshold = now - (3600000); // 1 hour ago
+
+		// Clean old connection events
+		this._analytics.connectionEvents = this._analytics.connectionEvents
+			.filter((event) => event.timestamp > oldEventThreshold)
+			.slice(-this._maxConnectionEvents);
+
+		// Clean old errors  
+		this._analytics.errors = this._analytics.errors
+			.filter((error) => error.timestamp > oldEventThreshold)
+			.slice(-this._maxErrors);
+
+		// Clean old peer events
+		this._analytics.peerEvents = this._analytics.peerEvents
+			.filter((event) => event.timestamp > oldEventThreshold)
+			.slice(-this._maxPeerEvents);
+
+		// Clean up connection quality for disconnected peers
+		const activePeerIds = new Set();
+		
+		for (const peer of this._getJoinedPeers())
+		{
+			activePeerIds.add(peer.id);
+		}
+
+		for (const peerId of this._connectionQuality.keys())
+		{
+			if (!activePeerIds.has(peerId))
+			{
+				this._connectionQuality.delete(peerId);
+			}
+		}
+
+		logger.debug('Analytics memory cleanup completed [roomId:%s]', this._roomId);
+	}
+
+	/**
+	 * Get real-time stats for a specific peer
+	 */
+	getPeerStats(peerId)
+	{
+		const peer = this._protooRoom.getPeer(peerId);
+
+		if (!peer || !peer.data.joined)
+			return null;
+
+		return {
+			peerId            : peerId,
+			displayName       : peer.data.displayName,
+			device            : peer.data.device,
+			transports        : peer.data.transports.size,
+			producers         : peer.data.producers.size,
+			consumers         : peer.data.consumers.size,
+			connectionQuality : this._connectionQuality.get(peerId) || { score: 5, issues: [] }
+		};
+	}
+
+	/**
+	 * Get all producers stats in the room
+	 */
+	getProducersStats()
+	{
+		const producersStats = [];
+		const joinedPeers = this._getJoinedPeers();
+
+		for (const peer of joinedPeers)
+		{
+			for (const producer of peer.data.producers.values())
+			{
+				producersStats.push({
+					id              : producer.id,
+					peerId          : peer.id,
+					peerDisplayName : peer.data.displayName,
+					kind            : producer.kind,
+					type            : producer.type,
+					paused          : producer.paused,
+					score           : producer.score,
+					rtpParameters   : {
+						codecs           : producer.rtpParameters.codecs,
+						headerExtensions : producer.rtpParameters.headerExtensions.length
+					},
+					appData        : producer.appData
+				});
+			}
+		}
+
+		return producersStats;
+	}
+
+	/**
+	 * Get all consumers stats in the room
+	 */
+	getConsumersStats()
+	{
+		const consumersStats = [];
+		const joinedPeers = this._getJoinedPeers();
+
+		for (const peer of joinedPeers)
+		{
+			for (const consumer of peer.data.consumers.values())
+			{
+				consumersStats.push({
+					id              : consumer.id,
+					peerId          : peer.id,
+					peerDisplayName : peer.data.displayName,
+					producerId      : consumer.producerId,
+					kind            : consumer.kind,
+					type            : consumer.type,
+					paused          : consumer.paused,
+					producerPaused  : consumer.producerPaused,
+					score           : consumer.score,
+					preferredLayers : consumer.preferredLayers,
+					currentLayers   : consumer.currentLayers,
+					appData         : consumer.appData
+				});
+			}
+		}
+
+		return consumersStats;
+	}
+
+	/**
+	 * Get specific producer stats
+	 */
+	getProducerStats(producerId)
+	{
+		const joinedPeers = this._getJoinedPeers();
+
+		for (const peer of joinedPeers)
+		{
+			const producer = peer.data.producers.get(producerId);
+
+			if (producer)
+			{
+				return {
+					id              : producer.id,
+					peerId          : peer.id,
+					peerDisplayName : peer.data.displayName,
+					kind            : producer.kind,
+					type            : producer.type,
+					paused          : producer.paused,
+					score           : producer.score,
+					rtpParameters   : producer.rtpParameters,
+					appData         : producer.appData,
+					stats           : producer.getStats ? producer.getStats() : null
+				};
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Get specific consumer stats
+	 */
+	getConsumerStats(consumerId)
+	{
+		const joinedPeers = this._getJoinedPeers();
+
+		for (const peer of joinedPeers)
+		{
+			const consumer = peer.data.consumers.get(consumerId);
+
+			if (consumer)
+			{
+				return {
+					id              : consumer.id,
+					peerId          : peer.id,
+					peerDisplayName : peer.data.displayName,
+					producerId      : consumer.producerId,
+					kind            : consumer.kind,
+					type            : consumer.type,
+					paused          : consumer.paused,
+					producerPaused  : consumer.producerPaused,
+					score           : consumer.score,
+					preferredLayers : consumer.preferredLayers,
+					currentLayers   : consumer.currentLayers,
+					appData         : consumer.appData,
+					stats           : consumer.getStats ? consumer.getStats() : null
+				};
+			}
+		}
+
+		return null;
 	}
 }
 
