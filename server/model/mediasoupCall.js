@@ -8,8 +8,9 @@ const mediasoupCallSchema = mongoose.Schema({
 	project_id     : { type: Schema.Types.ObjectId, required: true, index: true },
 	start_time     : { type: Number, required: false, default: 0 }, // call start time
 	end_time       : { type: Number, required: false, default: 0 }, // call end time
+	updated        : { type: Number, required: true, default: () => Date.now() }, // updated time
 	call_type      : { type: String, required: false }, // audio or video
-	room_id        : { type: String, required: false }, // room id
+	room_id        : { type: String, required: false, index: true }, // room id
 	voip_token     : { type: String, required: false },
 	current_status : { type: String, required: false },
 	is_random_call : { type: Boolean, required: true, default: false },
@@ -28,7 +29,8 @@ const mediasoupCallSchema = mongoose.Schema({
 			current_status : { type: String, required: false, default: '' }, // invited or caller
 			missed_call    : { type: Boolean, required: true, default: false },
 			deleted        : { type: Number, required: true, default: 0 },
-			created        : { type: Number, required: true, default: () => Date.now() }
+			created        : { type: Number, required: true, default: 0 },
+			updated        : { type: Number, required: true, default: () => Date.now() }
 		}
 	],
 	guest_users : [
