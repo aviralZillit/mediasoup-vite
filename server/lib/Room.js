@@ -1,3 +1,4 @@
+/* eslint-disable camelcase */
 const EventEmitter = require('events').EventEmitter;
 const mediasoup = require('mediasoup');
 const protoo = require('protoo-server');
@@ -8,6 +9,7 @@ const utils = require('./utils');
 const config = require('../config');
 const Bot = require('./Bot');
 
+const CallRepo = require('../repositories/MediasoupCalls');
 const logger = new Logger('Room');
 
 /**
@@ -292,7 +294,7 @@ class Room extends EventEmitter
 				});
 		});
 
-		peer.on('close', () =>
+		peer.on('close', async () =>
 		{
 			if (this._closed)
 				return;
@@ -316,6 +318,51 @@ class Room extends EventEmitter
 					otherPeer.notify('peerClosed', { peerId: peer.id })
 						.catch(() => {});
 				}
+			}
+			
+			const call = await CallRepo.getCall({ filters: { room_id: this._roomId } });
+
+			try 
+			{
+				if (call) 
+				{
+					const userToUpdate = call.call_users
+						.find((user) => user.user_id.toString() === peer.id);
+	
+					if (userToUpdate) 
+					{
+						userToUpdate.current_status = 'left'; // Update status to left
+						call.markModified('call_users');
+						await call.save();
+						logger.info(`✅ User ${peer.id} marked as left in room ${this._roomId}`);
+					}
+
+					// 🔄 Check if all users have left the call
+					const activeUsers = call.call_users.filter((user) => 
+						user.current_status === 'incall' || 
+						user.current_status === 'ringing' || 
+						user.current_status === 'caller'
+					);
+
+					// If no active users remain, mark call as ended
+					if (activeUsers.length === 0) 
+					{
+						call.end_time = Date.now();
+						call.current_status = 'call_ended';
+						await call.save();
+						
+						logger.info(`✅ Call auto-ended for room ${this._roomId} - no active participants`);
+						
+						// Close the MediaSoup room since call has ended
+						this.close();
+						
+						return; // Exit early since we're closing the room
+					}
+				}
+			}
+			catch (error) 
+			{
+				logger.error(`Error updating user leave status: ${error.message}`);
 			}
 
 			// Iterate and close all mediasoup Transport associated to this Peer, so all
@@ -2580,7 +2627,7 @@ class Room extends EventEmitter
 						codecs           : producer.rtpParameters.codecs,
 						headerExtensions : producer.rtpParameters.headerExtensions.length
 					},
-					appData        : producer.appData
+					appData : producer.appData
 				});
 			}
 		}
