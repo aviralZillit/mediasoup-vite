@@ -67,6 +67,9 @@ async function connectDB()
 {
 	try 
 	{
+		// Configure mongoose to suppress deprecation warning
+		mongoose.set('strictQuery', false);
+		
 		const mongoURI = process.env.MONGO_URI || '';
 
 		await mongoose.connect(mongoURI);
