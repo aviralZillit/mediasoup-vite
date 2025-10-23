@@ -18,6 +18,7 @@ const mediasoupCallSchema = mongoose.Schema({
 	chat_room_id   : {
 		type : String, required : false, default : '', index : true
 	}, // optional for private call
+	chat_room_name   : { type: String, required: false, default: '' },
 	is_247_call      : { type: Boolean, required: false, default: false },
 	is_calendar_call : { type: Boolean, required: false, default: false },
 	sender_user_id   : { type: Schema.Types.ObjectId, required: false },

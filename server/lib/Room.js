@@ -331,10 +331,26 @@ class Room extends EventEmitter
 	
 					if (userToUpdate) 
 					{
-						userToUpdate.current_status = 'left'; // Update status to left
+						// Check if user ever answered the call (was ever 'incall')
+						const wasEverInCall = userToUpdate.current_status === 'incall' || 
+											   userToUpdate.current_status === 'caller';
+											   
+						if (wasEverInCall) 
+						{
+							// User was in the call and then left
+							userToUpdate.current_status = 'left';
+							logger.info(`✅ User ${peer.id} marked as left (was in call) in room ${this._roomId}`);
+						}
+						else 
+						{
+							// User never answered - mark as missed call
+							userToUpdate.missed_call = true;
+							userToUpdate.current_status = 'invited'; // Keep as invited but mark missed
+							logger.info(`✅ User ${peer.id} marked as missed call (never answered) in room ${this._roomId}`);
+						}
+						
 						call.markModified('call_users');
 						await call.save();
-						logger.info(`✅ User ${peer.id} marked as left in room ${this._roomId}`);
 					}
 
 					// 🔄 Check if all users have left the call
