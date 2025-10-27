@@ -332,9 +332,8 @@ class Room extends EventEmitter
 					if (userToUpdate) 
 					{
 						// Check if user ever answered the call (was ever 'incall')
-						const wasEverInCall = userToUpdate.current_status === 'incall' || 
-											   userToUpdate.current_status === 'caller';
-											   
+						const wasEverInCall = userToUpdate.current_status === 'incall' || userToUpdate.current_status === 'caller';								   
+
 						if (wasEverInCall) 
 						{
 							// User was in the call and then left
@@ -353,26 +352,28 @@ class Room extends EventEmitter
 						await call.save();
 					}
 
-					// 🔄 Check if all users have left the call
-					const activeUsers = call.call_users.filter((user) => 
-						user.current_status === 'incall' || 
-						user.current_status === 'ringing' || 
-						user.current_status === 'caller'
-					);
+					// 🔄 Check if all peers have left the MediaSoup room
+					const remainingPeers = this._getJoinedPeers().length;
 
-					// If no active users remain, mark call as ended
-					if (activeUsers.length === 0) 
+					logger.info(`🔍 Auto-end check for room ${this._roomId}: ${remainingPeers} peers remaining in MediaSoup room`);
+
+					// If no peers remain in the MediaSoup room, mark call as ended
+					if (remainingPeers === 0) 
 					{
 						call.end_time = Date.now();
 						call.current_status = 'call_ended';
 						await call.save();
-						
+
 						logger.info(`✅ Call auto-ended for room ${this._roomId} - no active participants`);
-						
+
 						// Close the MediaSoup room since call has ended
 						this.close();
-						
+
 						return; // Exit early since we're closing the room
+					}
+					else 
+					{
+						logger.info(`⏳ Call continues for room ${this._roomId} - ${remainingPeers} peers still present`);
 					}
 				}
 			}
