@@ -311,6 +311,15 @@
 			&.restart-ice {
 				background-image: url('/images/icon_restart_ice_white.svg');
 			}
+
+			&.record {
+				background-image: url('/images/icon_record_white_off.svg');
+
+				&.on {
+					background-image: url('/images/icon_record_red_on.svg');
+					animation: Room-recording-pulse 1.5s infinite ease-in-out;
+				}
+			}
 		}
 	}
 }
@@ -318,5 +327,14 @@
 @keyframes Room-info-state-connecting {
 	50% {
 		background-color: rgba(orange, 0.75);
+	}
+}
+
+@keyframes Room-recording-pulse {
+	0%, 100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.65;
 	}
 }

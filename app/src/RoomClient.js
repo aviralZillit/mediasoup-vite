@@ -1655,6 +1655,72 @@ export default class RoomClient
 		store.dispatch(stateActions.setRestartIceInProgress(false));
 	}
 
+	async startRecording() 
+{
+		logger.debug('startRecording()');
+
+		store.dispatch(stateActions.setRecordingInProgress(true));
+
+		try 
+{
+			await this._protoo.request('startRecording');
+
+			store.dispatch(stateActions.setRecordingState(true));
+
+			store.dispatch(
+				requestActions.notify({
+					text : 'Recording started'
+				})
+			);
+		}
+ catch (error) 
+{
+			logger.error('startRecording() | failed:%o', error);
+
+			store.dispatch(
+				requestActions.notify({
+					type : 'error',
+					text : `Recording start failed: ${error}`
+				})
+			);
+		}
+
+		store.dispatch(stateActions.setRecordingInProgress(false));
+	}
+
+	async stopRecording() 
+{
+		logger.debug('stopRecording()');
+
+		store.dispatch(stateActions.setRecordingInProgress(true));
+
+		try 
+{
+			await this._protoo.request('stopRecording');
+
+			store.dispatch(stateActions.setRecordingState(false));
+
+			store.dispatch(
+				requestActions.notify({
+					text : 'Recording stopped'
+				})
+			);
+		}
+ catch (error) 
+{
+			logger.error('stopRecording() | failed:%o', error);
+
+			store.dispatch(
+				requestActions.notify({
+					type : 'error',
+					text : `Recording stop failed: ${error}`
+				})
+			);
+		}
+
+		store.dispatch(stateActions.setRecordingInProgress(false));
+	}
+
 	async setMaxSendingSpatialLayer(spatialLayer) 
 {
 		logger.debug('setMaxSendingSpatialLayer() [spatialLayer:%s]', spatialLayer);

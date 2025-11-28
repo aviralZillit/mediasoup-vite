@@ -1,16 +1,20 @@
 const initialState = {
-	url: null,
-	state: 'new', // new/connecting/connected/disconnected/closed,
-	mediasoupVersion: null,
-	mediasoupClientVersion: null,
-	mediasoupClientHandler: undefined,
-	activeSpeakerId: null,
-	statsPeerId: null,
-	faceDetection: false,
+	url                    : null,
+	state                  : 'new', // new/connecting/connected/disconnected/closed,
+	mediasoupVersion       : null,
+	mediasoupClientVersion : null,
+	mediasoupClientHandler : undefined,
+	activeSpeakerId        : null,
+	statsPeerId            : null,
+	faceDetection          : false,
+	recording              : false,
+	recordingInProgress    : false
 };
 
-const room = (state = initialState, action) => {
-	switch (action.type) {
+const room = (state = initialState, action) => 
+{
+	switch (action.type) 
+{
 		case 'SET_ROOM_URL': {
 			const { url } = action.payload;
 
@@ -24,9 +28,9 @@ const room = (state = initialState, action) => {
 			else
 				return {
 					...state,
-					state: roomState,
-					activeSpeakerId: null,
-					statsPeerId: null,
+					state           : roomState,
+					activeSpeakerId : null,
+					statsPeerId     : null
 				};
 		}
 
@@ -66,6 +70,18 @@ const room = (state = initialState, action) => {
 			const flag = action.payload;
 
 			return { ...state, faceDetection: flag };
+		}
+
+		case 'SET_RECORDING_STATE': {
+			const { recording } = action.payload;
+
+			return { ...state, recording };
+		}
+
+		case 'SET_RECORDING_IN_PROGRESS': {
+			const { flag } = action.payload;
+
+			return { ...state, recordingInProgress: flag };
 		}
 
 		case 'REMOVE_PEER': {

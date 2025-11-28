@@ -8,6 +8,7 @@ const Logger = require('./Logger');
 const utils = require('./utils');
 const config = require('../config');
 const Bot = require('./Bot');
+const GStreamer = require('./GStreamer');
 
 const CallRepo = require('../repositories/MediasoupCalls');
 const logger = new Logger('Room');
@@ -165,6 +166,14 @@ class Room extends EventEmitter
 
 		// Connection quality monitoring (minimal data)
 		this._connectionQuality = new Map(); // peerId -> quality metrics
+
+		// Recording state
+		// @type {GStreamer}
+		this._gstreamer = undefined;
+		// @type {Map<String, Object>} producerId -> { transport, consumer }
+		this._recordingConsumers = new Map();
+		// @type {Set<Number>} ports in use
+		this._usedRecordingPorts = new Set();
 
 		// Handle audioLevelObserver.
 		this._handleAudioLevelObserver();
@@ -1778,6 +1787,54 @@ class Room extends EventEmitter
 				break;
 			}
 
+			case 'startRecording':
+			{
+				// Ensure the Peer is joined.
+				if (!peer.data.joined)
+					throw new Error('Peer not yet joined');
+
+				logger.info('startRecording() [peerId:%s]', peer.id);
+
+				try
+				{
+					await this._startRecording({ peer });
+
+					accept();
+				}
+				catch (error)
+				{
+					logger.error('startRecording() failed:%o', error);
+
+					reject(500, error.message);
+				}
+
+				break;
+			}
+
+			case 'stopRecording':
+			{
+				// Ensure the Peer is joined.
+				if (!peer.data.joined)
+					throw new Error('Peer not yet joined');
+
+				logger.info('stopRecording() [peerId:%s]', peer.id);
+
+				try
+				{
+					await this._stopRecording();
+
+					accept();
+				}
+				catch (error)
+				{
+					logger.error('stopRecording() failed:%o', error);
+
+					reject(500, error.message);
+				}
+
+				break;
+			}
+
 			default:
 			{
 				logger.error('unknown request.method "%s"', request.method);
@@ -2747,6 +2804,271 @@ class Room extends EventEmitter
 		}
 
 		return null;
+	}
+
+	/**
+	 * Start recording the room - captures ALL participants
+	 */
+	async _startRecording({ peer })
+	{
+		if (this._gstreamer)
+		{
+			throw new Error('Recording already in progress');
+		}
+
+		logger.info('_startRecording() [peerId:%s]', peer.id);
+
+		// Collect ALL video and audio producers from ALL peers
+		const videoProducers = [];
+		const audioProducers = [];
+
+		for (const joinedPeer of this._getJoinedPeers())
+		{
+			for (const producer of joinedPeer.data.producers.values())
+			{
+				if (producer.kind === 'video')
+				{
+					videoProducers.push({ producer, peer: joinedPeer });
+					logger.info('_startRecording() Found video producer [peerId:%s, producerId:%s]',
+						joinedPeer.id, producer.id);
+				}
+				else if (producer.kind === 'audio')
+				{
+					audioProducers.push({ producer, peer: joinedPeer });
+					logger.info('_startRecording() Found audio producer [peerId:%s, producerId:%s]',
+						joinedPeer.id, producer.id);
+				}
+			}
+		}
+
+		logger.info('_startRecording() Found %d video producers and %d audio producers',
+			videoProducers.length, audioProducers.length);
+
+		if (videoProducers.length === 0)
+		{
+			throw new Error('No video producers found for recording');
+		}
+
+		// Publish RTP streams for ALL video producers with peer names
+		const videoInfos = [];
+
+		for (const { producer, peer: producerPeer } of videoProducers)
+		{
+			const videoInfo = await this._publishProducerRtpStream(producer);
+
+			// Add peer display name for overlay
+			videoInfo.peerName = producerPeer.data.displayName || `Peer ${producerPeer.id.slice(0, 6)}`;
+			videoInfos.push(videoInfo);
+		}
+
+		// Publish RTP streams for ALL audio producers
+		const audioInfos = [];
+
+		for (const { producer } of audioProducers)
+		{
+			const audioInfo = await this._publishProducerRtpStream(producer);
+
+			audioInfos.push(audioInfo);
+		}
+
+		// Build recording info for GStreamer with multiple streams
+		// Include room ID in filename for easy identification
+		const recordInfo = {
+			videos   : videoInfos,
+			audios   : audioInfos,
+			fileName : `recording-${this._roomId}-${Date.now()}`
+		};
+
+		logger.info('_startRecording() creating GStreamer with %d videos and %d audios',
+			videoInfos.length, audioInfos.length);
+
+		// Create GStreamer process
+		this._gstreamer = new GStreamer(recordInfo);
+
+		// Handle GStreamer events
+		this._gstreamer.on('process-close', () =>
+		{
+			logger.info('_startRecording() GStreamer process closed');
+			this._gstreamer = undefined;
+		});
+
+		this._gstreamer.on('error', (error) =>
+		{
+			logger.error('_startRecording() GStreamer error:%o', error);
+		});
+
+		// Wait for GStreamer to fully start, then resume consumers and request keyframes
+		// This is critical - if we resume too early, packets may be lost
+		setTimeout(async () =>
+		{
+			logger.info('_startRecording() Resuming consumers after GStreamer startup delay');
+
+			for (const { consumer, transport } of this._recordingConsumers.values())
+			{
+				try
+				{
+					// Log transport state before resuming
+					logger.info('_startRecording() Transport before resume: tuple=%o, rtcpTuple=%o',
+						transport.tuple, transport.rtcpTuple);
+
+					await consumer.resume();
+					await consumer.requestKeyFrame();
+					logger.info('_startRecording() Resumed consumer [id:%s, kind:%s]',
+						consumer.id, consumer.kind);
+
+					// Log consumer stats after a short delay
+					setTimeout(async () =>
+					{
+						try
+						{
+							const stats = await consumer.getStats();
+
+							logger.info('_startRecording() Consumer stats [kind:%s]: %o',
+								consumer.kind, stats);
+						}
+						catch (err)
+						{
+							logger.error('_startRecording() Error getting stats:%o', err);
+						}
+					}, 2000);
+				}
+				catch (error)
+				{
+					logger.error('_startRecording() Error resuming consumer:%o', error);
+				}
+			}
+		}, 2000);
+
+		logger.info('_startRecording() Recording started successfully');
+	}
+
+	/**
+	 * Stop recording
+	 */
+	async _stopRecording()
+	{
+		if (!this._gstreamer)
+		{
+			throw new Error('No recording in progress');
+		}
+
+		logger.info('_stopRecording()');
+
+		// Kill GStreamer process
+		this._gstreamer.kill();
+		this._gstreamer = undefined;
+
+		// Close all recording consumers and transports
+		for (const { transport, consumer } of this._recordingConsumers.values())
+		{
+			consumer.close();
+			transport.close();
+		}
+
+		this._recordingConsumers.clear();
+		this._usedRecordingPorts.clear();
+
+		logger.info('_stopRecording() Recording stopped successfully');
+	}
+
+	/**
+	 * Publish a producer's RTP stream to a PlainTransport for recording
+	 */
+	async _publishProducerRtpStream(producer)
+	{
+		logger.info('_publishProducerRtpStream() [producerId:%s]', producer.id);
+
+		const listenIp = '127.0.0.1';
+
+		// Create PlainTransport for RTP - let it choose its own ports
+		const transport = await this._mediasoupRouter.createPlainTransport({
+			listenIp : { ip: '0.0.0.0', announcedIp: listenIp },
+			rtcpMux  : false,
+			comedia  : false
+		});
+
+		logger.info('_publishProducerRtpStream() PlainTransport created [id:%s]', transport.id);
+
+		// Get the ports MediaSoup is listening on
+		const rtpTuple = transport.tuple;
+		const rtcpTuple = transport.rtcpTuple;
+
+		logger.info('_publishProducerRtpStream() Transport listening on [rtpPort:%d, rtcpPort:%d]',
+			rtpTuple.localPort, rtcpTuple.localPort);
+
+		// Allocate ports for GStreamer to listen on
+		const gstreamerRtpPort = await this._getAvailableRecordingPort();
+		const gstreamerRtcpPort = await this._getAvailableRecordingPort();
+
+		logger.info('_publishProducerRtpStream() Allocated GStreamer ports [rtp:%d, rtcp:%d]',
+			gstreamerRtpPort, gstreamerRtcpPort);
+
+		// Connect transport - tell MediaSoup where GStreamer is listening
+		await transport.connect({
+			ip       : listenIp,
+			port     : gstreamerRtpPort,
+			rtcpPort : gstreamerRtcpPort
+		});
+
+		// Log the final tuple to verify connection
+		logger.info('_publishProducerRtpStream() After connect - Transport tuple: %o',
+			transport.tuple);
+		logger.info('_publishProducerRtpStream() After connect - RTCP tuple: %o',
+			transport.rtcpTuple);
+
+		logger.info('_publishProducerRtpStream() PlainTransport will send to [ip:%s, rtpPort:%d, rtcpPort:%d]',
+			listenIp, gstreamerRtpPort, gstreamerRtcpPort);
+
+		// Create consumer on this transport with RTP capabilities
+		// Start paused - will be resumed after GStreamer is ready
+		const consumer = await transport.consume({
+			producerId      : producer.id,
+			rtpCapabilities : this._mediasoupRouter.rtpCapabilities,
+			paused          : true
+		});
+
+		logger.info('_publishProducerRtpStream() Consumer created [id:%s, kind:%s, paused:%s, producerPaused:%s]',
+			consumer.id, consumer.kind, consumer.paused, consumer.producerPaused);
+
+		logger.info('_publishProducerRtpStream() Consumer RTP parameters: %o', {
+			ssrc        : consumer.rtpParameters.encodings[0].ssrc,
+			payloadType : consumer.rtpParameters.codecs[0].payloadType,
+			mimeType    : consumer.rtpParameters.codecs[0].mimeType
+		});
+
+		// Store consumer and transport for cleanup
+		this._recordingConsumers.set(producer.id, { transport, consumer });
+
+		return {
+			remoteRtpPort  : gstreamerRtpPort,
+			remoteRtcpPort : gstreamerRtcpPort,
+			localRtcpPort  : rtcpTuple.localPort,
+			rtpParameters  : consumer.rtpParameters
+		};
+	}
+
+	/**
+	 * Get an available port for recording (20000-30000 range)
+	 */
+	async _getAvailableRecordingPort()
+	{
+		const minPort = 20000;
+		const maxPort = 30000;
+		const maxAttempts = 100;
+
+		for (let i = 0; i < maxAttempts; i++)
+		{
+			const port = Math.floor(Math.random() * (maxPort - minPort + 1)) + minPort;
+
+			if (!this._usedRecordingPorts.has(port))
+			{
+				this._usedRecordingPorts.add(port);
+
+				return port;
+			}
+		}
+
+		throw new Error('No available recording ports');
 	}
 }
 

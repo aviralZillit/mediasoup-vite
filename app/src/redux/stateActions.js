@@ -62,6 +62,22 @@ export const setRoomFaceDetection = (flag) =>
 	};
 };
 
+export const setRecordingState = (recording) => 
+{
+	return {
+		type    : 'SET_RECORDING_STATE',
+		payload : { recording }
+	};
+};
+
+export const setRecordingInProgress = (flag) => 
+{
+	return {
+		type    : 'SET_RECORDING_IN_PROGRESS',
+		payload : { flag }
+	};
+};
+
 export const setMe = ({ peerId, displayName, displayNameSet, device }) => 
 {
 	return {
