@@ -174,6 +174,16 @@ class Room extends EventEmitter
 		this._recordingConsumers = new Map();
 		// @type {Set<Number>} ports in use
 		this._usedRecordingPorts = new Set();
+		// @type {String} peerId of the user who started recording
+		this._recordingInitiatorPeerId = undefined;
+		// @type {Boolean} lock to prevent concurrent recording operations
+		this._recordingLock = false;
+		// @type {Number} timestamp when recording started
+		this._recordingStartTime = undefined;
+		// @type {Array<String>} list of segment file paths for merging
+		this._recordingSegments = [];
+		// @type {String} base filename for the final merged recording
+		this._recordingBaseFileName = undefined;
 
 		// Handle audioLevelObserver.
 		this._handleAudioLevelObserver();
@@ -198,6 +208,34 @@ class Room extends EventEmitter
 		logger.debug('close()');
 
 		this._closed = true;
+
+		// Stop any ongoing recording before closing
+		if (this._gstreamer)
+		{
+			logger.info('close() | Stopping recording due to room close');
+			try
+			{
+				this._gstreamer.kill();
+				this._gstreamer = undefined;
+				
+				// Clean up recording resources
+				for (const { transport, consumer } of this._recordingConsumers.values())
+				{
+					try { consumer.close(); }
+					catch (e) { /* ignore */ }
+					try { transport.close(); }
+					catch (e) { /* ignore */ }
+				}
+				this._recordingConsumers.clear();
+				this._usedRecordingPorts.clear();
+				this._recordingInitiatorPeerId = undefined;
+				this._recordingStartTime = undefined;
+			}
+			catch (error)
+			{
+				logger.error('close() | Error stopping recording: %o', error);
+			}
+		}
 
 		// Close the protoo Room.
 		this._protooRoom.close();
@@ -309,6 +347,21 @@ class Room extends EventEmitter
 				return;
 
 			logger.debug('protoo Peer "close" event [peerId:%s]', peer.id);
+
+			// Check if leaving peer is the recording initiator
+			// If so, stop the recording gracefully
+			if (this._gstreamer && this._recordingInitiatorPeerId === peer.id)
+			{
+				logger.info('Recording initiator left, stopping recording [peerId:%s]', peer.id);
+				try
+				{
+					await this._stopRecording({ reason: 'initiator_left' });
+				}
+				catch (error)
+				{
+					logger.error('Error stopping recording when initiator left: %o', error);
+				}
+			}
 
 			// Record peer departure analytics
 			this._recordEvent('peer_left', 
@@ -1094,6 +1147,19 @@ class Room extends EventEmitter
 						.catch(() => {});
 				}
 
+				// If recording is in progress, notify the new peer
+				if (this._gstreamer)
+				{
+					const initiator = this._getJoinedPeers()
+						.find((p) => p.id === this._recordingInitiatorPeerId);
+
+					peer.notify('recordingStarted', {
+						initiatorPeerId : this._recordingInitiatorPeerId,
+						initiatorName   : initiator ? initiator.data.displayName : 'Unknown',
+						startTime       : this._recordingStartTime
+					}).catch(() => {});
+				}
+
 				break;
 			}
 
@@ -1349,6 +1415,22 @@ class Room extends EventEmitter
 
 					this._activeSpeakerObserver.addProducer({ producerId: producer.id })
 						.catch(() => {});
+				}
+
+				// If recording is in progress and this is a new video producer,
+				// restart recording to include the new participant
+				if (this._gstreamer && producer.kind === 'video')
+				{
+					logger.info(
+						'New video producer during recording, restarting to include [peerId:%s]',
+						peer.id);
+
+					// Schedule restart (don't await to not block the response)
+					this._restartRecordingForNewProducer(peer)
+						.catch((error) =>
+						{
+							logger.error('Failed to restart recording for new producer: %o', error);
+						});
 				}
 
 				break;
@@ -1821,7 +1903,7 @@ class Room extends EventEmitter
 
 				try
 				{
-					await this._stopRecording();
+					await this._stopRecording({ reason: 'user_requested' });
 
 					accept();
 				}
@@ -1831,6 +1913,30 @@ class Room extends EventEmitter
 
 					reject(500, error.message);
 				}
+
+				break;
+			}
+
+			case 'getRecordingStatus':
+			{
+				// Ensure the Peer is joined.
+				if (!peer.data.joined)
+					throw new Error('Peer not yet joined');
+
+				const isRecording = Boolean(this._gstreamer);
+				const initiator = isRecording 
+					? this._getJoinedPeers().find((p) => p.id === this._recordingInitiatorPeerId)
+					: null;
+
+				accept({
+					isRecording,
+					initiatorPeerId : this._recordingInitiatorPeerId || null,
+					initiatorName   : initiator ? initiator.data.displayName : null,
+					startTime       : this._recordingStartTime || null,
+					duration        : this._recordingStartTime 
+						? Date.now() - this._recordingStartTime 
+						: 0
+				});
 
 				break;
 			}
@@ -2811,164 +2917,684 @@ class Room extends EventEmitter
 	 */
 	async _startRecording({ peer })
 	{
+		// Prevent concurrent recording operations with a lock
+		if (this._recordingLock)
+		{
+			throw new Error('Another recording operation is in progress, please wait');
+		}
+
 		if (this._gstreamer)
 		{
-			throw new Error('Recording already in progress');
+			// Return info about who started recording so client can show appropriate message
+			const initiator = this._getJoinedPeers().find((p) => p.id === this._recordingInitiatorPeerId);
+			const initiatorName = (initiator && initiator.data && initiator.data.displayName) || 'Another user';
+
+			throw new Error(`Recording already in progress (started by ${initiatorName})`);
 		}
 
-		logger.info('_startRecording() [peerId:%s]', peer.id);
+		// Acquire lock
+		this._recordingLock = true;
 
-		// Collect ALL video and audio producers from ALL peers
-		const videoProducers = [];
-		const audioProducers = [];
-
-		for (const joinedPeer of this._getJoinedPeers())
+		try
 		{
-			for (const producer of joinedPeer.data.producers.values())
+			logger.info('_startRecording() [peerId:%s]', peer.id);
+
+			// Collect ALL video and audio producers from ALL peers
+			const videoProducers = [];
+			const audioProducers = [];
+
+			for (const joinedPeer of this._getJoinedPeers())
 			{
-				if (producer.kind === 'video')
+				for (const producer of joinedPeer.data.producers.values())
 				{
-					videoProducers.push({ producer, peer: joinedPeer });
-					logger.info('_startRecording() Found video producer [peerId:%s, producerId:%s]',
-						joinedPeer.id, producer.id);
-				}
-				else if (producer.kind === 'audio')
-				{
-					audioProducers.push({ producer, peer: joinedPeer });
-					logger.info('_startRecording() Found audio producer [peerId:%s, producerId:%s]',
-						joinedPeer.id, producer.id);
-				}
-			}
-		}
-
-		logger.info('_startRecording() Found %d video producers and %d audio producers',
-			videoProducers.length, audioProducers.length);
-
-		if (videoProducers.length === 0)
-		{
-			throw new Error('No video producers found for recording');
-		}
-
-		// Publish RTP streams for ALL video producers with peer names
-		const videoInfos = [];
-
-		for (const { producer, peer: producerPeer } of videoProducers)
-		{
-			const videoInfo = await this._publishProducerRtpStream(producer);
-
-			// Add peer display name for overlay
-			videoInfo.peerName = producerPeer.data.displayName || `Peer ${producerPeer.id.slice(0, 6)}`;
-			videoInfos.push(videoInfo);
-		}
-
-		// Publish RTP streams for ALL audio producers
-		const audioInfos = [];
-
-		for (const { producer } of audioProducers)
-		{
-			const audioInfo = await this._publishProducerRtpStream(producer);
-
-			audioInfos.push(audioInfo);
-		}
-
-		// Build recording info for GStreamer with multiple streams
-		// Include room ID in filename for easy identification
-		const recordInfo = {
-			videos   : videoInfos,
-			audios   : audioInfos,
-			fileName : `recording-${this._roomId}-${Date.now()}`
-		};
-
-		logger.info('_startRecording() creating GStreamer with %d videos and %d audios',
-			videoInfos.length, audioInfos.length);
-
-		// Create GStreamer process
-		this._gstreamer = new GStreamer(recordInfo);
-
-		// Handle GStreamer events
-		this._gstreamer.on('process-close', () =>
-		{
-			logger.info('_startRecording() GStreamer process closed');
-			this._gstreamer = undefined;
-		});
-
-		this._gstreamer.on('error', (error) =>
-		{
-			logger.error('_startRecording() GStreamer error:%o', error);
-		});
-
-		// Wait for GStreamer to fully start, then resume consumers and request keyframes
-		// This is critical - if we resume too early, packets may be lost
-		setTimeout(async () =>
-		{
-			logger.info('_startRecording() Resuming consumers after GStreamer startup delay');
-
-			for (const { consumer, transport } of this._recordingConsumers.values())
-			{
-				try
-				{
-					// Log transport state before resuming
-					logger.info('_startRecording() Transport before resume: tuple=%o, rtcpTuple=%o',
-						transport.tuple, transport.rtcpTuple);
-
-					await consumer.resume();
-					await consumer.requestKeyFrame();
-					logger.info('_startRecording() Resumed consumer [id:%s, kind:%s]',
-						consumer.id, consumer.kind);
-
-					// Log consumer stats after a short delay
-					setTimeout(async () =>
+					if (producer.kind === 'video')
 					{
-						try
-						{
-							const stats = await consumer.getStats();
-
-							logger.info('_startRecording() Consumer stats [kind:%s]: %o',
-								consumer.kind, stats);
-						}
-						catch (err)
-						{
-							logger.error('_startRecording() Error getting stats:%o', err);
-						}
-					}, 2000);
-				}
-				catch (error)
-				{
-					logger.error('_startRecording() Error resuming consumer:%o', error);
+						videoProducers.push({ producer, peer: joinedPeer });
+						logger.info('_startRecording() Found video producer [peerId:%s, producerId:%s]',
+							joinedPeer.id, producer.id);
+					}
+					else if (producer.kind === 'audio')
+					{
+						audioProducers.push({ producer, peer: joinedPeer });
+						logger.info('_startRecording() Found audio producer [peerId:%s, producerId:%s]',
+							joinedPeer.id, producer.id);
+					}
 				}
 			}
-		}, 2000);
 
-		logger.info('_startRecording() Recording started successfully');
+			logger.info('_startRecording() Found %d video producers and %d audio producers',
+				videoProducers.length, audioProducers.length);
+
+			if (videoProducers.length === 0)
+			{
+				throw new Error('No video producers found for recording');
+			}
+
+			// Publish RTP streams for ALL video producers with peer names
+			const videoInfos = [];
+
+			for (const { producer, peer: producerPeer } of videoProducers)
+			{
+				const videoInfo = await this._publishProducerRtpStream(producer);
+
+				// Add peer display name for overlay
+				videoInfo.peerName = producerPeer.data.displayName || `Peer ${producerPeer.id.slice(0, 6)}`;
+				videoInfos.push(videoInfo);
+			}
+
+			// Publish RTP streams for ALL audio producers
+			const audioInfos = [];
+
+			for (const { producer } of audioProducers)
+			{
+				const audioInfo = await this._publishProducerRtpStream(producer);
+
+				audioInfos.push(audioInfo);
+			}
+
+			// Build recording info for GStreamer with multiple streams
+			// Include room ID in filename for easy identification
+			// Use segment number for multiple segments when new participants join
+			const segmentNumber = this._recordingSegments.length;
+			const segmentFileName = `recording-${this._roomId}-segment-${segmentNumber}-${Date.now()}`;
+
+			// Initialize base filename on first segment
+			if (segmentNumber === 0)
+			{
+				this._recordingBaseFileName = `recording-${this._roomId}-${Date.now()}`;
+			}
+
+			const recordInfo = {
+				videos   : videoInfos,
+				audios   : audioInfos,
+				fileName : segmentFileName
+			};
+
+			// Track this segment for later merging
+			const segmentPath = `./recordings/${segmentFileName}.mp4`;
+
+			this._recordingSegments.push(segmentPath);
+
+			logger.info('_startRecording() Creating segment %d: %s', segmentNumber, segmentPath);
+			logger.info('_startRecording() creating GStreamer with %d videos and %d audios',
+				videoInfos.length, audioInfos.length);
+
+			// Create GStreamer process
+			this._gstreamer = new GStreamer(recordInfo);
+
+			// Handle GStreamer events
+			this._gstreamer.on('process-close', () =>
+			{
+				logger.info('_startRecording() GStreamer process closed');
+				this._gstreamer = undefined;
+			});
+
+			this._gstreamer.on('error', (error) =>
+			{
+				logger.error('_startRecording() GStreamer error:%o', error);
+			});
+
+			// Wait for GStreamer to fully start, then resume consumers and request keyframes
+			// This is critical - if we resume too early, packets may be lost
+			setTimeout(async () =>
+			{
+				logger.info('_startRecording() Resuming consumers after GStreamer startup delay');
+
+				for (const { consumer, transport } of this._recordingConsumers.values())
+				{
+					try
+					{
+					// Log transport state before resuming
+						logger.info('_startRecording() Transport before resume: tuple=%o, rtcpTuple=%o',
+							transport.tuple, transport.rtcpTuple);
+
+						await consumer.resume();
+						await consumer.requestKeyFrame();
+						logger.info('_startRecording() Resumed consumer [id:%s, kind:%s]',
+							consumer.id, consumer.kind);
+
+						// Log consumer stats after a short delay
+						setTimeout(async () =>
+						{
+							try
+							{
+								const stats = await consumer.getStats();
+
+								logger.info('_startRecording() Consumer stats [kind:%s]: %o',
+									consumer.kind, stats);
+							}
+							catch (err)
+							{
+								logger.error('_startRecording() Error getting stats:%o', err);
+							}
+						}, 2000);
+					}
+					catch (error)
+					{
+						logger.error('_startRecording() Error resuming consumer:%o', error);
+					}
+				}
+			}, 2000);
+
+			// Store recording metadata
+			this._recordingInitiatorPeerId = peer.id;
+			this._recordingStartTime = Date.now();
+
+			logger.info('_startRecording() Recording started successfully');
+
+			// Notify all peers that recording has started
+			for (const otherPeer of this._getJoinedPeers())
+			{
+				otherPeer.notify('recordingStarted', {
+					initiatorPeerId : peer.id,
+					initiatorName   : peer.data.displayName,
+					startTime       : this._recordingStartTime
+				}).catch(() => {});
+			}
+		}
+		finally
+		{
+			// Release lock
+			this._recordingLock = false;
+		}
 	}
 
 	/**
 	 * Stop recording
+	 * @param {Object} options
+	 * @param {String} options.reason - Reason for stopping
+	 * @param {Boolean} options.skipMerge - Skip merging segments (for internal restart)
 	 */
-	async _stopRecording()
+	async _stopRecording({ reason = 'user_requested', skipMerge = false } = {})
 	{
-		if (!this._gstreamer)
+		// Prevent concurrent operations
+		if (this._recordingLock)
+		{
+			throw new Error('Another recording operation is in progress, please wait');
+		}
+
+		// Check if recording was supposed to be active (even if GStreamer crashed)
+		const hadRecording = this._recordingInitiatorPeerId !== undefined;
+
+		if (!this._gstreamer && !hadRecording)
 		{
 			throw new Error('No recording in progress');
 		}
 
-		logger.info('_stopRecording()');
+		this._recordingLock = true;
 
-		// Kill GStreamer process
-		this._gstreamer.kill();
-		this._gstreamer = undefined;
-
-		// Close all recording consumers and transports
-		for (const { transport, consumer } of this._recordingConsumers.values())
+		try
 		{
-			consumer.close();
-			transport.close();
+			logger.info('_stopRecording() [reason:%s, skipMerge:%s, gstreamerActive:%s]',
+				reason, skipMerge, Boolean(this._gstreamer));
+
+			const recordingDuration = this._recordingStartTime 
+				? Date.now() - this._recordingStartTime 
+				: 0;
+
+			// Kill GStreamer process (may already be undefined if it crashed)
+			if (this._gstreamer)
+			{
+				this._gstreamer.kill();
+				this._gstreamer = undefined;
+			}
+
+			// Close all recording consumers and transports
+			for (const { transport, consumer } of this._recordingConsumers.values())
+			{
+				try { consumer.close(); }
+				catch (e) { /* ignore */ }
+				try { transport.close(); }
+				catch (e) { /* ignore */ }
+			}
+
+			this._recordingConsumers.clear();
+			this._usedRecordingPorts.clear();
+
+			const initiatorPeerId = this._recordingInitiatorPeerId;
+			const segments = [ ...this._recordingSegments ];
+			const baseFileName = this._recordingBaseFileName;
+
+			// Only clear recording state if not skipping merge (final stop)
+			if (!skipMerge)
+			{
+				this._recordingInitiatorPeerId = undefined;
+				this._recordingStartTime = undefined;
+				this._recordingSegments = [];
+				this._recordingBaseFileName = undefined;
+			}
+
+			logger.info('_stopRecording() Recording stopped [duration:%dms, reason:%s, segments:%d]',
+				recordingDuration, reason, segments.length);
+
+			// Merge segments if there are multiple and not skipping
+			if (!skipMerge && segments.length > 0)
+			{
+				// Notify peers that merging is starting
+				for (const peer of this._getJoinedPeers())
+				{
+					peer.notify('recordingMerging', {
+						segmentCount : segments.length,
+						status       : 'starting'
+					}).catch(() => {});
+				}
+
+				// Wait a bit for GStreamer to finalize files
+				logger.info('_stopRecording() Waiting for segments to finalize...');
+				await new Promise((resolve) => setTimeout(resolve, 2000));
+
+				// Merge segments asynchronously
+				this._mergeRecordingSegments(segments, baseFileName, initiatorPeerId)
+					.catch((error) =>
+					{
+						logger.error('_stopRecording() Merge failed: %o', error);
+					});
+			}
+
+			// Notify all peers that recording has stopped
+			for (const peer of this._getJoinedPeers())
+			{
+				peer.notify('recordingStopped', {
+					reason,
+					duration        : recordingDuration,
+					initiatorPeerId,
+					segmentCount    : segments.length,
+					mergeInProgress : !skipMerge && segments.length > 1
+				}).catch(() => {});
+			}
+		}
+		finally
+		{
+			this._recordingLock = false;
+		}
+	}
+
+	/**
+	 * Merge multiple recording segments into a single file using FFmpeg
+	 */
+	async _mergeRecordingSegments(segments, baseFileName, initiatorPeerId)
+	{
+		const fs = require('fs');
+		const path = require('path');
+		const { spawn } = require('child_process');
+
+		const recordingsDir = './recordings';
+		const finalFileName = `${baseFileName}-final.mp4`;
+		const finalPath = path.join(recordingsDir, `${baseFileName}-final.mp4`);
+
+		logger.info('========================================');
+		logger.info('🎬 STARTING RECORDING MERGE PROCESS');
+		logger.info('========================================');
+		logger.info('📁 Segments to merge: %d', segments.length);
+
+		segments.forEach((seg, i) =>
+		{
+			logger.info('   Segment %d: %s', i + 1, seg);
+		});
+
+		logger.info('📦 Output file: %s', finalPath);
+		logger.info('----------------------------------------');
+
+		// If only one segment, just rename it
+		if (segments.length === 1)
+		{
+			logger.info('📝 Only one segment, renaming to final...');
+
+			try
+			{
+				const srcPath = segments[0];
+
+				// Wait for file to be fully written
+				await new Promise((resolve) => setTimeout(resolve, 1000));
+
+				if (fs.existsSync(srcPath))
+				{
+					fs.renameSync(srcPath, finalPath);
+					logger.info('✅ Single segment renamed successfully');
+					logger.info('📁 Final recording: %s', finalPath);
+
+					// Notify peers
+					this._notifyMergeComplete(finalFileName, initiatorPeerId);
+				}
+				else
+				{
+					logger.error('❌ Segment file not found: %s', srcPath);
+				}
+			}
+			catch (error)
+			{
+				logger.error('❌ Error renaming segment: %o', error);
+			}
+
+			return;
 		}
 
-		this._recordingConsumers.clear();
-		this._usedRecordingPorts.clear();
+		// Create concat file list for FFmpeg
+		const concatListPath = path.join(recordingsDir, `concat-${Date.now()}.txt`);
 
-		logger.info('_stopRecording() Recording stopped successfully');
+		logger.info('📝 Creating concat list: %s', concatListPath);
+
+		// Filter out segments that exist
+		const existingSegments = [];
+
+		for (const segment of segments)
+		{
+			// Wait a bit for each file
+			await new Promise((resolve) => setTimeout(resolve, 500));
+
+			if (fs.existsSync(segment))
+			{
+				const stats = fs.statSync(segment);
+
+				logger.info('   ✓ Found: %s (size: %d bytes)', segment, stats.size);
+
+				if (stats.size > 0)
+				{
+					existingSegments.push(segment);
+				}
+				else
+				{
+					logger.warn('   ⚠ Skipping empty segment: %s', segment);
+				}
+			}
+			else
+			{
+				logger.warn('   ⚠ Missing segment: %s', segment);
+			}
+		}
+
+		if (existingSegments.length === 0)
+		{
+			logger.error('❌ No valid segments found to merge');
+
+			return;
+		}
+
+		logger.info('📊 Valid segments: %d / %d', existingSegments.length, segments.length);
+
+		// If only one valid segment, rename it
+		if (existingSegments.length === 1)
+		{
+			logger.info('📝 Only one valid segment, renaming...');
+			fs.renameSync(existingSegments[0], finalPath);
+			logger.info('✅ Segment renamed to final');
+			this._notifyMergeComplete(finalFileName, initiatorPeerId);
+
+			return;
+		}
+
+		// Create concat list
+		const concatContent = existingSegments
+			.map((seg) => `file '${path.resolve(seg)}'`)
+			.join('\n');
+
+		fs.writeFileSync(concatListPath, concatContent);
+		logger.info('📋 Concat list created with %d files', existingSegments.length);
+
+		// Run FFmpeg to merge
+		logger.info('----------------------------------------');
+		logger.info('🚀 Starting FFmpeg merge process...');
+		logger.info('   Command: ffmpeg -f concat -safe 0 -i %s -c copy %s',
+			concatListPath, finalPath);
+
+		const ffmpeg = spawn('ffmpeg', [
+			'-f', 'concat',
+			'-safe', '0',
+			'-i', concatListPath,
+			'-c', 'copy',
+			'-y',
+			finalPath
+		]);
+
+		ffmpeg.stdout.on('data', (data) =>
+		{
+			logger.info('📹 FFmpeg: %s', data.toString().trim());
+		});
+
+		ffmpeg.stderr.on('data', (data) =>
+		{
+			const msg = data.toString().trim();
+
+			// FFmpeg outputs progress to stderr
+			if (msg.includes('frame=') || msg.includes('time='))
+			{
+				logger.info('📹 FFmpeg progress: %s', msg);
+			}
+			else if (msg.includes('Error') || msg.includes('error'))
+			{
+				logger.error('📹 FFmpeg error: %s', msg);
+			}
+			else
+			{
+				logger.info('📹 FFmpeg: %s', msg);
+			}
+		});
+
+		ffmpeg.on('close', (code) =>
+		{
+			logger.info('----------------------------------------');
+
+			if (code === 0)
+			{
+				logger.info('✅ FFmpeg merge completed successfully!');
+
+				// Get final file size
+				if (fs.existsSync(finalPath))
+				{
+					const stats = fs.statSync(finalPath);
+
+					logger.info('📁 Final recording: %s', finalPath);
+					logger.info('📊 Final size: %d bytes (%.2f MB)',
+						stats.size, stats.size / (1024 * 1024));
+				}
+
+				// Clean up segment files
+				logger.info('🧹 Cleaning up segment files...');
+
+				for (const segment of existingSegments)
+				{
+					try
+					{
+						if (fs.existsSync(segment))
+						{
+							fs.unlinkSync(segment);
+							logger.info('   🗑 Deleted: %s', segment);
+						}
+					}
+					catch (e)
+					{
+						logger.warn('   ⚠ Could not delete: %s', segment);
+					}
+				}
+
+				// Clean up concat list
+				try
+				{
+					fs.unlinkSync(concatListPath);
+					logger.info('   🗑 Deleted concat list');
+				}
+				catch (e) { /* ignore */ }
+
+				logger.info('========================================');
+				logger.info('🎉 RECORDING MERGE COMPLETE!');
+				logger.info('📁 File: %s', finalPath);
+				logger.info('========================================');
+
+				// Notify peers
+				this._notifyMergeComplete(finalFileName, initiatorPeerId);
+			}
+			else
+			{
+				logger.error('❌ FFmpeg merge failed with code: %d', code);
+				logger.info('⚠ Segment files preserved for manual recovery');
+				logger.info('========================================');
+
+				// Notify peers of failure
+				for (const peer of this._getJoinedPeers())
+				{
+					peer.notify('recordingMerging', {
+						status : 'failed',
+						error  : `FFmpeg exited with code ${code}`
+					}).catch(() => {});
+				}
+			}
+		});
+
+		ffmpeg.on('error', (error) =>
+		{
+			logger.error('❌ FFmpeg process error: %o', error);
+			logger.info('⚠ Segment files preserved for manual recovery');
+
+			// Notify peers
+			for (const peer of this._getJoinedPeers())
+			{
+				peer.notify('recordingMerging', {
+					status : 'failed',
+					error  : error.message
+				}).catch(() => {});
+			}
+		});
+	}
+
+	/**
+	 * Notify peers that merge is complete
+	 */
+	_notifyMergeComplete(finalFileName, initiatorPeerId)
+	{
+		for (const peer of this._getJoinedPeers())
+		{
+			peer.notify('recordingMerging', {
+				status        : 'complete',
+				finalFileName : finalFileName,
+				initiatorPeerId
+			}).catch(() => {});
+		}
+	}
+
+	/**
+	 * Restart recording to include a new participant
+	 * This stops the current recording and starts a new one with all current producers
+	 */
+	async _restartRecordingForNewProducer(newPeer)
+	{
+		// Don't restart if lock is held (another operation in progress)
+		if (this._recordingLock)
+		{
+			logger.warn('_restartRecordingForNewProducer() Skipping - recording lock held');
+
+			return;
+		}
+
+		// Wait longer for the new peer's producers to be fully set up
+		// New participants need time for ICE, DTLS, and producer creation
+		logger.info('_restartRecordingForNewProducer() Waiting for new peer to set up producers...');
+		await new Promise((resolve) => setTimeout(resolve, 5000));
+
+		// Check if new peer actually has producers now
+		const newPeerProducers = [];
+
+		if (newPeer.data.producers)
+		{
+			for (const producer of newPeer.data.producers.values())
+			{
+				if (!producer.closed)
+				{
+					newPeerProducers.push(producer);
+				}
+			}
+		}
+
+		if (newPeerProducers.length === 0)
+		{
+			logger.info('_restartRecordingForNewProducer() New peer has no producers yet, skipping restart');
+
+			return;
+		}
+
+		logger.info('_restartRecordingForNewProducer() New peer has %d producers', newPeerProducers.length);
+
+		// Double-check recording is still active
+		if (!this._gstreamer)
+		{
+			logger.info('_restartRecordingForNewProducer() Recording no longer active');
+
+			return;
+		}
+
+		const initiatorPeerId = this._recordingInitiatorPeerId;
+
+		logger.info('_restartRecordingForNewProducer() Restarting for new peer [peerId:%s]',
+			newPeer.id);
+
+		try
+		{
+			// Stop current recording (internal - don't notify as "stopped")
+			this._recordingLock = true;
+
+			// Kill GStreamer (may already be undefined if it crashed)
+			if (this._gstreamer)
+			{
+				this._gstreamer.kill();
+				this._gstreamer = undefined;
+			}
+
+			// Clean up current recording resources
+			for (const { transport, consumer } of this._recordingConsumers.values())
+			{
+				try { consumer.close(); }
+				catch (e) { /* ignore */ }
+				try { transport.close(); }
+				catch (e) { /* ignore */ }
+			}
+			this._recordingConsumers.clear();
+			this._usedRecordingPorts.clear();
+
+			// Wait longer for ports to be released and system to stabilize
+			logger.info('_restartRecordingForNewProducer() Waiting for cleanup...');
+			await new Promise((resolve) => setTimeout(resolve, 2000));
+
+			this._recordingLock = false;
+
+			// Find the initiator peer
+			const initiatorPeer = this._getJoinedPeers()
+				.find((p) => p.id === initiatorPeerId);
+
+			if (!initiatorPeer)
+			{
+				logger.warn('_restartRecordingForNewProducer() Initiator peer no longer present');
+
+				return;
+			}
+
+			// Start new recording with all current producers
+			await this._startRecording({ peer: initiatorPeer });
+
+			// Notify peers that recording was restarted to include new participant
+			for (const peer of this._getJoinedPeers())
+			{
+				peer.notify('recordingRestarted', {
+					reason      : 'new_participant',
+					newPeerId   : newPeer.id,
+					newPeerName : newPeer.data.displayName
+				}).catch(() => {});
+			}
+
+			logger.info('_restartRecordingForNewProducer() Recording restarted successfully');
+		}
+		catch (error)
+		{
+			logger.error('_restartRecordingForNewProducer() Failed: %o', error);
+			this._recordingLock = false;
+
+			// Notify peers of failure
+			for (const peer of this._getJoinedPeers())
+			{
+				peer.notify('recordingStopped', {
+					reason          : 'restart_failed',
+					initiatorPeerId : initiatorPeerId
+				}).catch(() => {});
+			}
+		}
 	}
 
 	/**
@@ -3019,21 +3645,40 @@ class Room extends EventEmitter
 		logger.info('_publishProducerRtpStream() PlainTransport will send to [ip:%s, rtpPort:%d, rtcpPort:%d]',
 			listenIp, gstreamerRtpPort, gstreamerRtcpPort);
 
-		// Create consumer on this transport with RTP capabilities
+		// Create custom RTP capabilities without RTX for recording
+		// This prevents RTX packets from being sent to GStreamer
+		const routerRtpCapabilities = this._mediasoupRouter.rtpCapabilities;
+		const recordingRtpCapabilities = {
+			codecs : routerRtpCapabilities.codecs.filter(
+				(codec) => !codec.mimeType.toLowerCase().includes('rtx')
+			),
+			headerExtensions : routerRtpCapabilities.headerExtensions
+		};
+
+		// Create consumer on this transport with RTP capabilities (no RTX)
 		// Start paused - will be resumed after GStreamer is ready
 		const consumer = await transport.consume({
 			producerId      : producer.id,
-			rtpCapabilities : this._mediasoupRouter.rtpCapabilities,
+			rtpCapabilities : recordingRtpCapabilities,
 			paused          : true
 		});
 
 		logger.info('_publishProducerRtpStream() Consumer created [id:%s, kind:%s, paused:%s, producerPaused:%s]',
 			consumer.id, consumer.kind, consumer.paused, consumer.producerPaused);
 
-		logger.info('_publishProducerRtpStream() Consumer RTP parameters: %o', {
+		// Log ALL codecs to understand what we're dealing with
+		logger.info('_publishProducerRtpStream() Consumer ALL codecs: %o', consumer.rtpParameters.codecs);
+
+		// Find the main codec (not RTX)
+		const mainCodec = consumer.rtpParameters.codecs.find(
+			(codec) => !codec.mimeType.toLowerCase().includes('rtx')
+		);
+
+		logger.info('_publishProducerRtpStream() Consumer main codec: %o', {
 			ssrc        : consumer.rtpParameters.encodings[0].ssrc,
-			payloadType : consumer.rtpParameters.codecs[0].payloadType,
-			mimeType    : consumer.rtpParameters.codecs[0].mimeType
+			payloadType : mainCodec.payloadType,
+			mimeType    : mainCodec.mimeType,
+			clockRate   : mainCodec.clockRate
 		});
 
 		// Store consumer and transport for cleanup

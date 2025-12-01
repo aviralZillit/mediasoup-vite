@@ -73,11 +73,8 @@ class GStreamer extends EventEmitter
 			this._process.stderr.setEncoding('utf-8');
 			this._process.stderr.on('data', (data) =>
 			{
-				// Only log important messages, not all debug output
-				if (data.includes('ERROR') || data.includes('WARNING') || data.includes('Got EOS'))
-				{
-					logger.info('gstreamer::stderr [data:%s]', data.trim());
-				}
+				// Log all stderr for debugging
+				logger.info('gstreamer::stderr [data:%s]', data.trim());
 			});
 		}
 
@@ -210,19 +207,50 @@ class GStreamer extends EventEmitter
 		for (let i = 0; i < videos.length; i++)
 		{
 			const video = videos[i];
-			const videoCodec = video.rtpParameters.codecs[0];
+			// Find the main video codec (not RTX)
+			const videoCodec = video.rtpParameters.codecs.find(
+				(codec) => !codec.mimeType.toLowerCase().includes('rtx')
+			) || video.rtpParameters.codecs[0];
 			const videoPayloadType = videoCodec.payloadType;
 			const videoClockRate = videoCodec.clockRate;
+			const videoMimeType = videoCodec.mimeType.toLowerCase();
 			const peerName = video.peerName || `Participant ${i + 1}`;
 
-			const videoCaps = `application/x-rtp,media=video,clock-rate=${videoClockRate},payload=${videoPayloadType},encoding-name=VP8`;
+			// Determine encoding name and depayloader based on codec
+			let encodingName, depayloader;
 
-			logger.info('_buildPipeline() Video %d: port=%d, pt=%d, peer=%s',
-				i, video.remoteRtpPort, videoPayloadType, peerName);
+			if (videoMimeType.includes('vp8'))
+			{
+				encodingName = 'VP8';
+				depayloader = 'rtpvp8depay';
+			}
+			else if (videoMimeType.includes('vp9'))
+			{
+				encodingName = 'VP9';
+				depayloader = 'rtpvp9depay';
+			}
+			else if (videoMimeType.includes('h264'))
+			{
+				encodingName = 'H264';
+				depayloader = 'rtph264depay';
+			}
+			else
+			{
+				// Default to VP8
+				encodingName = 'VP8';
+				depayloader = 'rtpvp8depay';
+			}
 
-			// Add text overlay with participant name at the bottom
+			// For video: VP8=96/101, VP9=98, H264=various
+			// MediaSoup typically uses dynamic payload types starting from 96
+			// Use a simple caps with only clock-rate, no PT restriction
+			// Skip rtpjitterbuffer and use queue instead for simpler handling
+			logger.info('_buildPipeline() Video %d: port=%d, pt=%d, clockRate=%d, codec=%s, encoding=%s, peer=%s',
+				i, video.remoteRtpPort, videoPayloadType, videoClockRate, videoMimeType, encodingName, peerName);
+
+			// Simpler pipeline without jitterbuffer - use decodebin to auto-detect the codec
 			pipelineParts.push(
-				`udpsrc address=127.0.0.1 port=${video.remoteRtpPort} caps="${videoCaps}" ! rtpjitterbuffer latency=200 ! rtpvp8depay ! decodebin ! videoconvert ! videoscale ! videorate ! video/x-raw,framerate=30/1 ! textoverlay text="${peerName}" valignment=bottom halignment=center font-desc="Sans Bold 16" shaded-background=true ! queue max-size-buffers=100 ! comp.sink_${i}`
+				`udpsrc address=127.0.0.1 port=${video.remoteRtpPort} caps="application/x-rtp,media=video,clock-rate=${videoClockRate},encoding-name=${encodingName},payload=${videoPayloadType}" ! queue ! ${depayloader} ! decodebin ! videoconvert ! videoscale ! videorate ! video/x-raw,framerate=30/1 ! textoverlay text="${peerName}" valignment=bottom halignment=center font-desc="Sans Bold 16" shaded-background=true ! queue max-size-buffers=100 ! comp.sink_${i}`
 			);
 		}
 
@@ -238,17 +266,51 @@ class GStreamer extends EventEmitter
 			for (let i = 0; i < audios.length; i++)
 			{
 				const audio = audios[i];
-				const audioCodec = audio.rtpParameters.codecs[0];
+				// Find the main audio codec (not RTX)
+				const audioCodec = audio.rtpParameters.codecs.find(
+					(codec) => !codec.mimeType.toLowerCase().includes('rtx')
+				) || audio.rtpParameters.codecs[0];
 				const audioPayloadType = audioCodec.payloadType;
 				const audioClockRate = audioCodec.clockRate;
+				const audioMimeType = audioCodec.mimeType.toLowerCase();
 
-				const audioCaps = `application/x-rtp,media=audio,clock-rate=${audioClockRate},payload=${audioPayloadType},encoding-name=OPUS`;
+				// Determine encoding name and depayloader based on codec
+				let audioEncodingName, audioDepayloader, audioDecoder;
 
-				logger.info('_buildPipeline() Audio %d: port=%d, pt=%d',
-					i, audio.remoteRtpPort, audioPayloadType);
+				if (audioMimeType.includes('opus'))
+				{
+					audioEncodingName = 'OPUS';
+					audioDepayloader = 'rtpopusdepay';
+					audioDecoder = 'opusdec';
+				}
+				else if (audioMimeType.includes('pcm') || audioMimeType.includes('l16'))
+				{
+					audioEncodingName = 'L16';
+					audioDepayloader = 'rtpL16depay';
+					audioDecoder = ''; // No decoder needed for raw PCM
+				}
+				else if (audioMimeType.includes('g722'))
+				{
+					audioEncodingName = 'G722';
+					audioDepayloader = 'rtpg722depay';
+					audioDecoder = 'avdec_g722';
+				}
+				else
+				{
+					// Default to Opus
+					audioEncodingName = 'OPUS';
+					audioDepayloader = 'rtpopusdepay';
+					audioDecoder = 'opusdec';
+				}
+
+				// Simpler pipeline without jitterbuffer
+				logger.info('_buildPipeline() Audio %d: port=%d, pt=%d, clockRate=%d, codec=%s',
+					i, audio.remoteRtpPort, audioPayloadType, audioClockRate, audioMimeType);
+
+				const decoderPart = audioDecoder ? `${audioDecoder} ! ` : '';
 
 				pipelineParts.push(
-					`udpsrc address=127.0.0.1 port=${audio.remoteRtpPort} caps="${audioCaps}" ! rtpjitterbuffer latency=200 ! rtpopusdepay ! opusdec ! audioconvert ! audioresample ! queue max-size-buffers=100 ! amix.`
+					`udpsrc address=127.0.0.1 port=${audio.remoteRtpPort} caps="application/x-rtp,media=audio,clock-rate=${audioClockRate},encoding-name=${audioEncodingName},payload=${audioPayloadType}" ! queue ! ${audioDepayloader} ! ${decoderPart}audioconvert ! audioresample ! queue max-size-buffers=100 ! amix.`
 				);
 			}
 		}
