@@ -76,6 +76,25 @@
 				&.stats {
 					background-image: url('/images/icon_stats_white_on.svg');
 				}
+
+				&.pin {
+					background-color: rgba(#000, 0.3);
+					border-radius: 4px;
+					background-size: 75%;
+					
+					&.on {
+						background-color: rgba(#4caf50, 0.8);
+						background-image: url('/images/icon_pin_on.svg');
+					}
+
+					&:not(.on) {
+						background-image: url('/images/icon_pin_off.svg');
+					}
+
+					&:hover {
+						background-color: rgba(#4caf50, 0.6);
+					}
+				}
 			}
 		}
 

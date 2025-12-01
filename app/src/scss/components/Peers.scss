@@ -22,6 +22,7 @@
 		align-items: center;
 	}
 
+	// Original peer container styles - unchanged from before
 	> .peer-container {
 		overflow: hidden;
 
@@ -40,6 +41,15 @@
 			&.active-speaker {
 				border-color: #fff;
 			}
+
+			// Screen share tile indicator
+			&.share-tile {
+				border-color: rgba(#4caf50, 0.6);
+
+				&.active-speaker {
+					border-color: #4caf50;
+				}
+			}
 		}
 
 		@include mobile() {
@@ -54,6 +64,113 @@
 
 			&.active-speaker {
 				order: 1;
+			}
+		}
+	}
+
+	// ========================================
+	// PINNED LAYOUT - Only active when has-pinned class
+	// ========================================
+	&.has-pinned {
+		@include desktop() {
+			padding: 20px;
+			gap: 16px;
+			flex-wrap: nowrap;
+			align-items: stretch;
+			align-content: stretch;
+		}
+
+		@include mobile() {
+			padding: 10px;
+			gap: 10px;
+		}
+
+		// Large pinned container
+		> .pinned-container {
+			overflow: hidden;
+			border-radius: 8px;
+
+			@include desktop() {
+				flex: 1 1 auto;
+				min-width: 0;
+				height: calc(100vh - 280px);
+				min-height: 400px;
+			}
+
+			@include mobile() {
+				flex: 0 0 auto;
+				width: 100%;
+				height: 55vh;
+			}
+
+			> div {
+				height: 100%;
+				width: 100%;
+			}
+
+			.peer-container.pinned {
+				height: 100%;
+				width: 100%;
+				margin: 0;
+				border: 2px solid #4caf50;
+				border-radius: 8px;
+				box-shadow: 0px 8px 24px 4px rgba(#000, 0.5);
+
+				&.active-speaker {
+					border-color: #fff;
+				}
+			}
+		}
+
+		// Sidebar for unpinned peers
+		> .peers-sidebar {
+			display: flex;
+			overflow-y: auto;
+			overflow-x: hidden;
+
+			@include desktop() {
+				flex: 0 0 220px;
+				flex-direction: column;
+				gap: 8px;
+				height: calc(100vh - 280px);
+				min-height: 400px;
+				padding-right: 4px;
+			}
+
+			@include mobile() {
+				flex: 0 0 auto;
+				flex-direction: row;
+				gap: 8px;
+				width: 100%;
+				height: 120px;
+				overflow-x: auto;
+				overflow-y: hidden;
+				padding-bottom: 4px;
+			}
+
+			> div {
+				flex-shrink: 0;
+			}
+
+			.peer-container.sidebar-peer {
+				margin: 0;
+				border-radius: 6px;
+				border: 1px solid rgba(#fff, 0.2);
+				box-shadow: 0px 3px 8px 1px rgba(#111, 0.4);
+
+				@include desktop() {
+					height: 130px;
+					width: 100%;
+				}
+
+				@include mobile() {
+					height: 100%;
+					width: 160px;
+				}
+
+				&.active-speaker {
+					border-color: #fff;
+				}
 			}
 		}
 	}

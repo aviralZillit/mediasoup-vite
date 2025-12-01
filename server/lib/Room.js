@@ -184,6 +184,8 @@ class Room extends EventEmitter
 		this._recordingSegments = [];
 		// @type {String} base filename for the final merged recording
 		this._recordingBaseFileName = undefined;
+		// @type {String} peerId of the currently pinned/spotlight peer
+		this._pinnedPeerId = null;
 
 		// Handle audioLevelObserver.
 		this._handleAudioLevelObserver();
@@ -360,6 +362,20 @@ class Room extends EventEmitter
 				catch (error)
 				{
 					logger.error('Error stopping recording when initiator left: %o', error);
+				}
+			}
+
+			// Check if leaving peer is the pinned peer
+			// If so, clear the pin and notify all peers
+			if (this._pinnedPeerId === peer.id)
+			{
+				logger.info('Pinned peer left, clearing pin [peerId:%s]', peer.id);
+				this._pinnedPeerId = null;
+
+				for (const otherPeer of this._getJoinedPeers({ excludePeer: peer }))
+				{
+					otherPeer.notify('pinnedPeerChanged', { peerId: null })
+						.catch(() => {});
 				}
 			}
 
@@ -1160,6 +1176,13 @@ class Room extends EventEmitter
 					}).catch(() => {});
 				}
 
+				// If there's a pinned peer, notify the new peer
+				if (this._pinnedPeerId)
+				{
+					peer.notify('pinnedPeerChanged', { peerId: this._pinnedPeerId })
+						.catch(() => {});
+				}
+
 				break;
 			}
 
@@ -1585,6 +1608,66 @@ class Room extends EventEmitter
 					throw new Error(`consumer with id "${consumerId}" not found`);
 
 				await consumer.requestKeyFrame();
+
+				accept();
+
+				break;
+			}
+
+			case 'pinPeer':
+			{
+				// Ensure the Peer is joined.
+				if (!peer.data.joined)
+					throw new Error('Peer not yet joined');
+
+				const { peerId } = request.data;
+
+				// peerId can be a tile ID like "abc123" or "abc123-share"
+				// Extract the base peer ID for validation
+				const basePeerId = peerId.endsWith('-share') 
+					? peerId.slice(0, -6) // Remove '-share' suffix
+					: peerId;
+
+				// Verify the peer to pin exists
+				const peerToPin = this._protooRoom.getPeer(basePeerId);
+
+				if (!peerToPin || !peerToPin.data.joined)
+					throw new Error(`peer with id "${basePeerId}" not found or not joined`);
+
+				// Set the pinned tile ID for the room (includes -share suffix if present)
+				this._pinnedPeerId = peerId;
+
+				logger.info('pinPeer() [tileId:%s, basePeerId:%s, pinnedBy:%s]', peerId, basePeerId, peer.id);
+
+				// Notify all peers about the pinned peer change
+				for (const otherPeer of this._getJoinedPeers())
+				{
+					otherPeer.notify('pinnedPeerChanged', { peerId: this._pinnedPeerId })
+						.catch(() => {});
+				}
+
+				accept();
+
+				break;
+			}
+
+			case 'unpinPeer':
+			{
+				// Ensure the Peer is joined.
+				if (!peer.data.joined)
+					throw new Error('Peer not yet joined');
+
+				// Clear the pinned peer
+				this._pinnedPeerId = null;
+
+				logger.info('unpinPeer() [unpinnedBy:%s]', peer.id);
+
+				// Notify all peers about the pinned peer change
+				for (const otherPeer of this._getJoinedPeers())
+				{
+					otherPeer.notify('pinnedPeerChanged', { peerId: null })
+						.catch(() => {});
+				}
 
 				accept();
 
@@ -2143,6 +2226,45 @@ class Room extends EventEmitter
 						// of this new stream once its PeerConnection is already ready to process
 						// and associate it.
 						await consumer.resume();
+
+						// SCREEN SHARE PRIORITY: Boost quality for screen share consumers
+						// This ensures screen content is always crisp on the receiver side
+						if (producer.appData && producer.appData.share && consumer.kind === 'video')
+						{
+							try
+							{
+								// Parse scalability mode to get layer counts
+								const scalabilityMode = 
+									consumer.rtpParameters.encodings[0].scalabilityMode || 'L1T1';
+								const match = scalabilityMode.match(/^L(\d+)T(\d+)/);
+								const spatialLayers = match ? parseInt(match[1]) : 1;
+								const temporalLayers = match ? parseInt(match[2]) : 1;
+								
+								if (spatialLayers > 1 || temporalLayers > 1)
+								{
+									await consumer.setPreferredLayers({
+										spatialLayer  : spatialLayers - 1,
+										temporalLayer : temporalLayers - 1
+									});
+								}
+								
+								// Set high priority for screen share
+								await consumer.setPriority(255);
+								
+								logger.debug(
+									'_createConsumer() | boosted screen share quality ' +
+									'[consumerId:%s, spatialLayers:%d, temporalLayers:%d]',
+									consumer.id, spatialLayers, temporalLayers
+								);
+							}
+							catch (priorityError)
+							{
+								logger.warn(
+									'_createConsumer() | failed to boost screen share priority:%o',
+									priorityError
+								);
+							}
+						}
 
 						consumerPeer.notify(
 							'consumerScore',

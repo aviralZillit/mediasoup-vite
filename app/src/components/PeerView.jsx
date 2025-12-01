@@ -58,6 +58,8 @@ export default class PeerView extends React.Component {
 		const {
 			isMe,
 			peer,
+			isPinned,
+			onPinToggle,
 			audioProducerId,
 			videoProducerId,
 			audioConsumerId,
@@ -108,6 +110,14 @@ export default class PeerView extends React.Component {
 							className={classnames('icon', 'stats')}
 							onClick={() => onStatsClick(peer.id)}
 						/>
+
+						{!isMe && onPinToggle && (
+							<div
+								className={classnames('icon', 'pin', { on: isPinned })}
+								onClick={onPinToggle}
+								title={isPinned ? 'Unpin' : 'Pin to spotlight'}
+							/>
+						)}
 					</div>
 
 					<div className={classnames('box', { visible: showInfo })}>
@@ -729,6 +739,8 @@ export default class PeerView extends React.Component {
 PeerView.propTypes = {
 	isMe: PropTypes.bool,
 	peer: PropTypes.oneOfType([appPropTypes.Me, appPropTypes.Peer]).isRequired,
+	isPinned: PropTypes.bool,
+	onPinToggle: PropTypes.func,
 	audioProducerId: PropTypes.string,
 	videoProducerId: PropTypes.string,
 	audioConsumerId: PropTypes.string,

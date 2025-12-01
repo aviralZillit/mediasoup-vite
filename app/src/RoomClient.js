@@ -381,7 +381,8 @@ export default class RoomClient
 									priority               : 1,
 									codec                  :
 										consumer.rtpParameters.codecs[0].mimeType.split('/')[1],
-									track : consumer.track
+									track   : consumer.track,
+									appData : appData // Include appData to distinguish share from webcam
 								},
 								peerId
 							)
@@ -394,6 +395,18 @@ export default class RoomClient
 						// If audio-only mode is enabled, pause it.
 						if (consumer.kind === 'video' && store.getState().me.audioOnly)
 							this._pauseConsumer(consumer);
+
+						// SCREEN SHARE QUALITY BOOST: Automatically request max quality for screen shares
+						// This ensures screen content is always crisp and readable
+						if (consumer.kind === 'video' && appData.share && spatialLayers > 1) {
+							logger.debug('Boosting quality for screen share consumer [consumerId:%s]', consumer.id);
+							
+							// Request maximum spatial and temporal layers
+							this.setConsumerPreferredLayers(consumer.id, spatialLayers - 1, temporalLayers - 1);
+							
+							// Set high priority for screen share
+							this.setConsumerPriority(consumer.id, 255);
+						}
 					}
  catch (error) 
 {
@@ -769,6 +782,15 @@ export default class RoomClient
 					const { peerId } = notification.data;
 
 					store.dispatch(stateActions.setRoomActiveSpeaker(peerId));
+
+					break;
+				}
+
+				case 'pinnedPeerChanged': {
+					const { peerId } = notification.data;
+
+					logger.debug('pinnedPeerChanged notification [peerId:%s]', peerId);
+					store.dispatch(stateActions.setPinnedPeerId(peerId));
 
 					break;
 				}
@@ -1319,7 +1341,8 @@ export default class RoomClient
 		logger.debug('enableShare()');
 
 		if (this._shareProducer) return;
-		else if (this._webcamProducer) await this.disableWebcam();
+		// Don't disable webcam - allow both to run simultaneously like Google Meet
+		// else if (this._webcamProducer) await this.disableWebcam();
 
 		if (!this._mediasoupDevice.canProduce('video')) 
 {
@@ -1336,15 +1359,20 @@ export default class RoomClient
 {
 			logger.debug('enableShare() | calling getUserMedia()');
 
+			// Request HIGH quality screen sharing like Google Meet/Zoom
+			// Key settings for crisp text and screen content:
+			// - High resolution (up to 4K for presentations)
+			// - Moderate framerate (5-15 fps for static, higher for video)
+			// - contentHint: 'text' tells encoder to prioritize sharpness over smoothness
 			const stream = await navigator.mediaDevices.getDisplayMedia({
 				audio : false,
 				video : {
 					displaySurface : 'monitor',
 					logicalSurface : true,
 					cursor         : true,
-					width          : { max: 1920 },
-					height         : { max: 1080 },
-					frameRate      : { max: 30 }
+					width          : { ideal: 1920, max: 3840 },  // Up to 4K
+					height         : { ideal: 1080, max: 2160 },  // Up to 4K
+					frameRate      : { ideal: 15, max: 30 }       // Lower FPS = more bits per frame = sharper
 				}
 			});
 
@@ -1358,10 +1386,32 @@ export default class RoomClient
 
 			track = stream.getVideoTracks()[0];
 
+			// CRITICAL: Set content hint to 'text' for screen sharing
+			// This tells the encoder to prioritize sharpness over motion smoothness
+			// Makes text, code, and UI elements crystal clear
+			if ('contentHint' in track) {
+				track.contentHint = 'text';  // 'text' = sharp edges, 'motion' = smooth video
+				logger.debug('enableShare() | set contentHint to "text" for sharp screen content');
+			}
+
+			// Apply constraints to disable processing that can blur text
+			try {
+				await track.applyConstraints({
+					// Disable noise reduction which can blur text
+					noiseSuppression: false,
+					// Disable auto gain which can affect quality
+					autoGainControl: false,
+				});
+			} catch (e) {
+				// These constraints might not be supported, that's okay
+				logger.debug('enableShare() | could not apply additional constraints: %o', e);
+			}
+
 			let encodings;
 			let codec;
+			// Higher start bitrate for immediate quality
 			const codecOptions = {
-				videoGoogleStartBitrate : 1000
+				videoGoogleStartBitrate : 2000  // Start at 2 Mbps for faster quality ramp-up
 			};
 
 			if (this._forceVP8) 
@@ -1398,60 +1448,36 @@ export default class RoomClient
 				}
 			}
 
-			if (this._enableSharingLayers) 
-{
-				// If VP9 is the only available video codec then use SVC.
-				const firstVideoCodec =
-					this._mediasoupDevice.rtpCapabilities.codecs.find(
-						(c) => c.kind === 'video'
-					);
+			// For screen sharing, use a SINGLE high-quality stream (no simulcast)
+			// This ensures maximum quality for text, code, and UI elements
+			// Simulcast can cause quality degradation as receivers may get lower layers
+			const firstVideoCodec =
+				this._mediasoupDevice.rtpCapabilities.codecs.find(
+					(c) => c.kind === 'video'
+				);
 
-				// VP9 with SVC.
-				if (
-					(this._forceVP9 && codec) ||
-					firstVideoCodec.mimeType.toLowerCase() === 'video/vp9'
-				) 
+			// VP9 with SVC - single high-quality stream
+			if (
+				(this._forceVP9 && codec) ||
+				firstVideoCodec.mimeType.toLowerCase() === 'video/vp9'
+			) 
 {
-					encodings = [
-						{
-							maxBitrate      : 5000000,
-							scalabilityMode : this._sharingScalabilityMode || 'L3T3',
-							dtx             : true
-						}
-					];
-				}
-				// VP8 or H264 with simulcast.
-				else 
-{
-					encodings = [
-						{
-							scaleResolutionDownBy : 1,
-							maxBitrate            : 5000000,
-							scalabilityMode       : this._sharingScalabilityMode || 'L1T3',
-							dtx                   : true
-						}
-					];
-
-					if (this._numSimulcastStreams > 1) 
-{
-						encodings.unshift({
-							scaleResolutionDownBy : 2,
-							maxBitrate            : 1000000,
-							scalabilityMode       : this._sharingScalabilityMode || 'L1T3',
-							dtx                   : true
-						});
+				encodings = [
+					{
+						maxBitrate      : 15000000, // 15 Mbps for crystal-clear screen share
+						scalabilityMode : 'L1T3',   // Single spatial layer, 3 temporal (for bandwidth adaptation)
+						dtx             : true
 					}
-
-					if (this._numSimulcastStreams > 2) 
+				];
+			}
+			// VP8 or H264 - single high-quality stream (NO simulcast for screen share)
+			else 
 {
-						encodings.unshift({
-							scaleResolutionDownBy : 4,
-							maxBitrate            : 500000,
-							scalabilityMode       : this._sharingScalabilityMode || 'L1T3',
-							dtx                   : true
-						});
+				encodings = [
+					{
+						maxBitrate : 15000000  // 15 Mbps for full quality screen share
 					}
-				}
+				];
 			}
 
 			this._shareProducer = await this._sendTransport.produce({
@@ -1835,6 +1861,54 @@ export default class RoomClient
 				requestActions.notify({
 					type : 'error',
 					text : `Error requesting key frame for Consumer: ${error}`
+				})
+			);
+		}
+	}
+
+	async pinPeer(peerId) 
+{
+		logger.debug('pinPeer() [peerId:%s]', peerId);
+
+		try 
+{
+			await this._protoo.request('pinPeer', { peerId });
+
+			// Server will broadcast to all peers, so we don't update local state here
+			// The notification handler will update the state
+		}
+ catch (error) 
+{
+			logger.error('pinPeer() | failed:%o', error);
+
+			store.dispatch(
+				requestActions.notify({
+					type : 'error',
+					text : `Error pinning peer: ${error}`
+				})
+			);
+		}
+	}
+
+	async unpinPeer() 
+{
+		logger.debug('unpinPeer()');
+
+		try 
+{
+			await this._protoo.request('unpinPeer');
+
+			// Server will broadcast to all peers, so we don't update local state here
+			// The notification handler will update the state
+		}
+ catch (error) 
+{
+			logger.error('unpinPeer() | failed:%o', error);
+
+			store.dispatch(
+				requestActions.notify({
+					type : 'error',
+					text : `Error unpinning peer: ${error}`
 				})
 			);
 		}

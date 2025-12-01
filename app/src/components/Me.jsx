@@ -24,6 +24,7 @@ class Me extends React.Component {
 			me,
 			audioProducer,
 			videoProducer,
+			shareProducer,
 			faceDetection,
 			onSetStatsPeerId,
 		} = this.props;
@@ -38,7 +39,7 @@ class Me extends React.Component {
 		let webcamState;
 
 		if (!me.canSendWebcam) webcamState = 'unsupported';
-		else if (videoProducer && videoProducer.type !== 'share')
+		else if (videoProducer)
 			webcamState = 'on';
 		else webcamState = 'off';
 
@@ -46,7 +47,6 @@ class Me extends React.Component {
 
 		if (
 			Boolean(videoProducer) &&
-			videoProducer.type !== 'share' &&
 			me.canChangeWebcam
 		)
 			changeWebcamState = 'on';
@@ -54,11 +54,12 @@ class Me extends React.Component {
 
 		let shareState;
 
-		if (Boolean(videoProducer) && videoProducer.type === 'share')
+		if (Boolean(shareProducer))
 			shareState = 'on';
 		else shareState = 'off';
 
 		const videoVisible = Boolean(videoProducer) && !videoProducer.paused;
+		const shareVisible = Boolean(shareProducer) && !shareProducer.paused;
 
 		let tip;
 
@@ -70,6 +71,7 @@ class Me extends React.Component {
 				ref={node => (this._rootNode = node)}
 				data-tip={tip}
 				data-tip-disable={!tip}
+				className={classnames({ 'has-share': shareVisible })}
 			>
 				{connected && (
 					<div className="controls">
@@ -84,7 +86,7 @@ class Me extends React.Component {
 
 						<div
 							className={classnames('button', 'webcam', webcamState, {
-								disabled: me.webcamInProgress || me.shareInProgress,
+								disabled: me.webcamInProgress,
 							})}
 							onClick={() => {
 								if (webcamState === 'on') {
@@ -103,7 +105,7 @@ class Me extends React.Component {
 								'change-webcam',
 								changeWebcamState,
 								{
-									disabled: me.webcamInProgress || me.shareInProgress,
+									disabled: me.webcamInProgress,
 								}
 							)}
 							onClick={() => roomClient.changeWebcam()}
@@ -111,7 +113,7 @@ class Me extends React.Component {
 
 						<div
 							className={classnames('button', 'share', shareState, {
-								disabled: me.shareInProgress || me.webcamInProgress,
+								disabled: me.shareInProgress,
 							})}
 							onClick={() => {
 								if (shareState === 'on') roomClient.disableShare();
@@ -121,33 +123,58 @@ class Me extends React.Component {
 					</div>
 				)}
 
-				<PeerView
-					isMe
-					peer={me}
-					audioProducerId={audioProducer ? audioProducer.id : null}
-					videoProducerId={videoProducer ? videoProducer.id : null}
-					audioRtpParameters={
-						audioProducer ? audioProducer.rtpParameters : null
-					}
-					videoRtpParameters={
-						videoProducer ? videoProducer.rtpParameters : null
-					}
-					audioTrack={audioProducer ? audioProducer.track : null}
-					videoTrack={videoProducer ? videoProducer.track : null}
-					videoVisible={videoVisible}
-					audioCodec={audioProducer ? audioProducer.codec : null}
-					videoCodec={videoProducer ? videoProducer.codec : null}
-					audioScore={audioProducer ? audioProducer.score : null}
-					videoScore={videoProducer ? videoProducer.score : null}
-					faceDetection={faceDetection}
-					onChangeDisplayName={displayName => {
-						roomClient.changeDisplayName(displayName);
-					}}
-					onChangeMaxSendingSpatialLayer={spatialLayer => {
-						roomClient.setMaxSendingSpatialLayer(spatialLayer);
-					}}
-					onStatsClick={onSetStatsPeerId}
-				/>
+				{/* Main video view - webcam or share */}
+				<div className="video-container">
+					<PeerView
+						isMe
+						peer={me}
+						audioProducerId={audioProducer ? audioProducer.id : null}
+						videoProducerId={videoProducer ? videoProducer.id : null}
+						audioRtpParameters={
+							audioProducer ? audioProducer.rtpParameters : null
+						}
+						videoRtpParameters={
+							videoProducer ? videoProducer.rtpParameters : null
+						}
+						audioTrack={audioProducer ? audioProducer.track : null}
+						videoTrack={videoProducer ? videoProducer.track : null}
+						videoVisible={videoVisible}
+						audioCodec={audioProducer ? audioProducer.codec : null}
+						videoCodec={videoProducer ? videoProducer.codec : null}
+						audioScore={audioProducer ? audioProducer.score : null}
+						videoScore={videoProducer ? videoProducer.score : null}
+						faceDetection={faceDetection}
+						onChangeDisplayName={displayName => {
+							roomClient.changeDisplayName(displayName);
+						}}
+						onChangeMaxSendingSpatialLayer={spatialLayer => {
+							roomClient.setMaxSendingSpatialLayer(spatialLayer);
+						}}
+						onStatsClick={onSetStatsPeerId}
+					/>
+				</div>
+
+				{/* Screen share thumbnail when sharing */}
+				{shareVisible && (
+					<div className="share-container">
+						<div className="share-label">Screen Share</div>
+						<PeerView
+							isMe
+							peer={{ ...me, displayName: 'Screen' }}
+							videoProducerId={shareProducer.id}
+							videoRtpParameters={shareProducer.rtpParameters}
+							videoTrack={shareProducer.track}
+							videoVisible={shareVisible}
+							videoCodec={shareProducer.codec}
+							videoScore={shareProducer.score}
+							faceDetection={false}
+							onChangeMaxSendingSpatialLayer={spatialLayer => {
+								roomClient.setMaxSendingSpatialLayer(spatialLayer);
+							}}
+							onStatsClick={onSetStatsPeerId}
+						/>
+					</div>
+				)}
 
 				<ReactTooltip
 					type="light"
@@ -186,6 +213,7 @@ Me.propTypes = {
 	me: appPropTypes.Me.isRequired,
 	audioProducer: appPropTypes.Producer,
 	videoProducer: appPropTypes.Producer,
+	shareProducer: appPropTypes.Producer,
 	faceDetection: PropTypes.bool.isRequired,
 	onSetStatsPeerId: PropTypes.func.isRequired,
 };
@@ -195,8 +223,13 @@ const mapStateToProps = state => {
 	const audioProducer = producersArray.find(
 		producer => producer.track.kind === 'audio'
 	);
+	// Webcam producer (video that is NOT share)
 	const videoProducer = producersArray.find(
-		producer => producer.track.kind === 'video'
+		producer => producer.track.kind === 'video' && producer.type !== 'share'
+	);
+	// Screen share producer
+	const shareProducer = producersArray.find(
+		producer => producer.track.kind === 'video' && producer.type === 'share'
 	);
 
 	return {
@@ -204,6 +237,7 @@ const mapStateToProps = state => {
 		me: state.me,
 		audioProducer: audioProducer,
 		videoProducer: videoProducer,
+		shareProducer: shareProducer,
 		faceDetection: state.room.faceDetection,
 	};
 };

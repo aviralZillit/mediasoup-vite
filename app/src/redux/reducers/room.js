@@ -8,7 +8,8 @@ const initialState = {
 	statsPeerId            : null,
 	faceDetection          : false,
 	recording              : false,
-	recordingInProgress    : false
+	recordingInProgress    : false,
+	pinnedPeerId           : null
 };
 
 const room = (state = initialState, action) => 
@@ -84,6 +85,14 @@ const room = (state = initialState, action) =>
 			return { ...state, recordingInProgress: flag };
 		}
 
+		case 'SET_PINNED_PEER_ID': {
+			const { peerId } = action.payload;
+
+			// Server controls the pinned peer state
+			// peerId can be null (unpin) or a peer id (pin)
+			return { ...state, pinnedPeerId: peerId };
+		}
+
 		case 'REMOVE_PEER': {
 			const { peerId } = action.payload;
 			const newState = { ...state };
@@ -92,6 +101,10 @@ const room = (state = initialState, action) =>
 				newState.activeSpeakerId = null;
 
 			if (peerId && peerId === state.statsPeerId) newState.statsPeerId = null;
+
+			// Also unpin if the pinned peer leaves
+			if (peerId && peerId === state.pinnedPeerId)
+				newState.pinnedPeerId = null;
 
 			return newState;
 		}

@@ -111,4 +111,63 @@
 			}
 		}
 	}
+
+	// Main video container
+	> .video-container {
+		height: 100%;
+		width: 100%;
+	}
+
+	// Screen share thumbnail when sharing
+	> .share-container {
+		position: absolute;
+		z-index: 5;
+		border: 2px solid #4caf50;
+		border-radius: 6px;
+		overflow: hidden;
+		box-shadow: 0px 4px 12px rgba(#000, 0.5);
+
+		@include desktop() {
+			bottom: 8px;
+			right: 8px;
+			width: 160px;
+			height: 100px;
+		}
+
+		@include mobile() {
+			bottom: 6px;
+			right: 6px;
+			width: 120px;
+			height: 75px;
+		}
+
+		> .share-label {
+			position: absolute;
+			z-index: 6;
+			top: 4px;
+			left: 4px;
+			padding: 2px 6px;
+			background-color: rgba(#4caf50, 0.85);
+			border-radius: 3px;
+			font-size: 10px;
+			color: #fff;
+			font-weight: 500;
+		}
+
+		[data-component='PeerView'] {
+			height: 100%;
+			width: 100%;
+
+			> .info {
+				display: none;
+			}
+		}
+	}
+
+	// When sharing, make the main view show share preview
+	&.has-share {
+		> .video-container {
+			// Main video is still visible
+		}
+	}
 }

@@ -78,6 +78,14 @@ export const setRecordingInProgress = (flag) =>
 	};
 };
 
+export const setPinnedPeerId = (peerId) => 
+{
+	return {
+		type    : 'SET_PINNED_PEER_ID',
+		payload : { peerId }
+	};
+};
+
 export const setMe = ({ peerId, displayName, displayNameSet, device }) => 
 {
 	return {
