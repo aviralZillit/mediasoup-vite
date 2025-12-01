@@ -398,7 +398,8 @@ export default class RoomClient
 
 						// SCREEN SHARE QUALITY BOOST: Automatically request max quality for screen shares
 						// This ensures screen content is always crisp and readable
-						if (consumer.kind === 'video' && appData.share && spatialLayers > 1) {
+						if (consumer.kind === 'video' && appData.share && spatialLayers > 1) 
+{
 							logger.debug('Boosting quality for screen share consumer [consumerId:%s]', consumer.id);
 							
 							// Request maximum spatial and temporal layers
@@ -1370,9 +1371,9 @@ export default class RoomClient
 					displaySurface : 'monitor',
 					logicalSurface : true,
 					cursor         : true,
-					width          : { ideal: 1920, max: 3840 },  // Up to 4K
-					height         : { ideal: 1080, max: 2160 },  // Up to 4K
-					frameRate      : { ideal: 15, max: 30 }       // Lower FPS = more bits per frame = sharper
+					width          : { ideal: 1920, max: 3840 }, // Up to 4K
+					height         : { ideal: 1080, max: 2160 }, // Up to 4K
+					frameRate      : { ideal: 15, max: 30 } // Lower FPS = more bits per frame = sharper
 				}
 			});
 
@@ -1389,20 +1390,24 @@ export default class RoomClient
 			// CRITICAL: Set content hint to 'text' for screen sharing
 			// This tells the encoder to prioritize sharpness over motion smoothness
 			// Makes text, code, and UI elements crystal clear
-			if ('contentHint' in track) {
-				track.contentHint = 'text';  // 'text' = sharp edges, 'motion' = smooth video
+			if ('contentHint' in track) 
+{
+				track.contentHint = 'text'; // 'text' = sharp edges, 'motion' = smooth video
 				logger.debug('enableShare() | set contentHint to "text" for sharp screen content');
 			}
 
 			// Apply constraints to disable processing that can blur text
-			try {
+			try 
+{
 				await track.applyConstraints({
 					// Disable noise reduction which can blur text
-					noiseSuppression: false,
+					noiseSuppression : false,
 					// Disable auto gain which can affect quality
-					autoGainControl: false,
+					autoGainControl  : false
 				});
-			} catch (e) {
+			}
+ catch (e) 
+{
 				// These constraints might not be supported, that's okay
 				logger.debug('enableShare() | could not apply additional constraints: %o', e);
 			}
@@ -1411,7 +1416,7 @@ export default class RoomClient
 			let codec;
 			// Higher start bitrate for immediate quality
 			const codecOptions = {
-				videoGoogleStartBitrate : 2000  // Start at 2 Mbps for faster quality ramp-up
+				videoGoogleStartBitrate : 2000 // Start at 2 Mbps for faster quality ramp-up
 			};
 
 			if (this._forceVP8) 
@@ -1465,7 +1470,7 @@ export default class RoomClient
 				encodings = [
 					{
 						maxBitrate      : 15000000, // 15 Mbps for crystal-clear screen share
-						scalabilityMode : 'L1T3',   // Single spatial layer, 3 temporal (for bandwidth adaptation)
+						scalabilityMode : 'L1T3', // Single spatial layer, 3 temporal (for bandwidth adaptation)
 						dtx             : true
 					}
 				];
@@ -1475,7 +1480,7 @@ export default class RoomClient
 {
 				encodings = [
 					{
-						maxBitrate : 15000000  // 15 Mbps for full quality screen share
+						maxBitrate : 15000000 // 15 Mbps for full quality screen share
 					}
 				];
 			}
