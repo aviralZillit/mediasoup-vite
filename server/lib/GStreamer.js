@@ -155,7 +155,7 @@ class GStreamer extends EventEmitter
 		const positions = [];
 
 		// Check if there's a screen share
-		const screenShareIndex = videos.findIndex(v => v.isScreenShare);
+		const screenShareIndex = videos.findIndex((v) => v.isScreenShare);
 		const hasScreenShare = screenShareIndex !== -1;
 
 		if (numVideos === 0)
@@ -351,7 +351,7 @@ class GStreamer extends EventEmitter
 		// WebM supports VP8/VP9 video and Opus/Vorbis audio natively
 		// streamable=true allows the file to be playable during recording
 		pipelineParts.push(
-			`webmmux name=mux streamable=true ! ` +
+			'webmmux name=mux streamable=true ! ' +
 			`filesink location="${this._outputPath}" sync=false`
 		);
 
@@ -375,10 +375,10 @@ class GStreamer extends EventEmitter
 		pipelineParts.push(
 			`compositor name=comp background=black${compositorSinks} ! ` +
 			`video/x-raw,width=${OUTPUT_WIDTH},height=${OUTPUT_HEIGHT},framerate=30/1 ! ` +
-			`videoconvert ! ` +
-			`vp8enc deadline=1 cpu-used=8 threads=4 target-bitrate=4000000 ` +
-			`keyframe-max-dist=60 ! ` +
-			`queue max-size-buffers=200 max-size-time=0 max-size-bytes=0 ! mux.video_0`
+			'videoconvert ! ' +
+			'vp8enc deadline=1 cpu-used=8 threads=4 target-bitrate=4000000 ' +
+			'keyframe-max-dist=60 ! ' +
+			'queue max-size-buffers=200 max-size-time=0 max-size-bytes=0 ! mux.video_0'
 		);
 
 		// Add video input pipelines
@@ -437,13 +437,13 @@ class GStreamer extends EventEmitter
 				`udpsrc address=127.0.0.1 port=${video.remoteRtpPort} ` +
 				`caps="application/x-rtp,media=video,clock-rate=${videoClockRate},` +
 				`encoding-name=${encodingName},payload=${videoPayloadType}" ` +
-				`do-timestamp=true ! ` +
-				`queue max-size-buffers=500 max-size-time=5000000000 max-size-bytes=0 leaky=downstream ! ` +
+				'do-timestamp=true ! ' +
+				'queue max-size-buffers=500 max-size-time=5000000000 max-size-bytes=0 leaky=downstream ! ' +
 				`${depayloader} ! ` +
-				`decodebin ! ` +
-				`videoconvert ! videoscale add-borders=true ! ` +
+				'decodebin ! ' +
+				'videoconvert ! videoscale add-borders=true ! ' +
 				`video/x-raw,width=${pos.width},height=${pos.height},pixel-aspect-ratio=1/1 ! ` +
-				`videorate drop-only=false ! video/x-raw,framerate=30/1 ! ` +
+				'videorate drop-only=false ! video/x-raw,framerate=30/1 ! ' +
 				`textoverlay text="${overlayText}" valignment=bottom halignment=center ` +
 				`font-desc="Sans Bold ${fontSize}" shaded-background=true draw-shadow=true ! ` +
 				`queue max-size-buffers=100 ! comp.sink_${i}`
@@ -454,6 +454,7 @@ class GStreamer extends EventEmitter
 		// Using Opus encoder for WebM (or Vorbis as fallback)
 		// Opus is lighter than AAC and WebM native
 		const safeAudios = audios || [];
+
 		if (safeAudios.length > 0)
 		{
 			pipelineParts.push(
@@ -507,11 +508,11 @@ class GStreamer extends EventEmitter
 					`udpsrc address=127.0.0.1 port=${audio.remoteRtpPort} ` +
 					`caps="application/x-rtp,media=audio,clock-rate=${audioClockRate},` +
 					`encoding-name=${audioEncodingName},payload=${audioPayloadType}" ` +
-					`do-timestamp=true ! ` +
-					`queue max-size-buffers=500 max-size-time=5000000000 leaky=downstream ! ` +
+					'do-timestamp=true ! ' +
+					'queue max-size-buffers=500 max-size-time=5000000000 leaky=downstream ! ' +
 					`${audioDepayloader} ! ${decoderPart}` +
-					`audioconvert ! audioresample ! ` +
-					`queue max-size-buffers=100 ! amix.`
+					'audioconvert ! audioresample ! ' +
+					'queue max-size-buffers=100 ! amix.'
 				);
 			}
 		}

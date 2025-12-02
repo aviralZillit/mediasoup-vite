@@ -7,13 +7,15 @@ const APP_NAME = 'mediasoup-demo-server';
 
 // Create logs directory if it doesn't exist
 const logsDir = path.join(__dirname, '..', 'logs');
+
 if (!fs.existsSync(logsDir))
 {
 	fs.mkdirSync(logsDir, { recursive: true });
 }
 
 // Create a unique log file with timestamp for this server session
-const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+const timestamp = new Date().toISOString()
+	.replace(/[:.]/g, '-');
 const logFilePath = path.join(logsDir, `server-${timestamp}.log`);
 
 // Create write stream for log file
