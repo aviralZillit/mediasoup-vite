@@ -7,6 +7,7 @@ node_modules/
 /server/certs/
 /server/mediasoup_valgrind_*
 /server/recordings/*
+/server/logs/*
 
 # Environment variables
 .env
