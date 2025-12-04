@@ -11,6 +11,9 @@ const Bot = require('./Bot');
 const GStreamer = require('./GStreamer');
 const RawStreamRecorder = require('./RawStreamRecorder');
 const VideoComposer = require('./VideoComposer');
+const IndividualStreamRecorder = require('./IndividualStreamRecorder');
+const PostRecordingComposer = require('./PostRecordingComposer');
+const fs = require('fs');
 
 const CallRepo = require('../repositories/MediasoupCalls');
 const logger = new Logger('Room');
@@ -172,9 +175,9 @@ class Room extends EventEmitter
 		// Recording state - NEW approach: record raw streams, compose after
 		// @type {GStreamer} - Legacy, kept for compatibility
 		this._gstreamer = undefined;
-		// @type {Map<String, Object>} producerId -> { transport, consumer, recorder, streamInfo }
+		// @type {Map<String, Object>} streamId -> { transport, consumer, recorder, producer }
 		this._recordingConsumers = new Map();
-		// @type {Map<String, RawStreamRecorder>} producerId -> recorder
+		// @type {Map<String, IndividualStreamRecorder>} streamId -> recorder
 		this._streamRecorders = new Map();
 		// @type {Set<Number>} ports in use
 		this._usedRecordingPorts = new Set();
@@ -186,7 +189,7 @@ class Room extends EventEmitter
 		this._recordingLockTime = null;
 		// @type {Number} timestamp when recording started
 		this._recordingStartTime = undefined;
-		// @type {Array<Object>} list of stream info for composition {path, peerName, isScreenShare, kind}
+		// @type {Array<Object>} list of stream info for composition
 		this._recordedStreams = [];
 		// @type {Array<String>} list of segment file paths for merging
 		this._recordingSegments = [];
@@ -196,6 +199,10 @@ class Room extends EventEmitter
 		this._compositionInProgress = false;
 		// @type {String} peerId of the currently pinned/spotlight peer
 		this._pinnedPeerId = null;
+		// @type {Boolean} whether recording is in progress (new Zoom-style)
+		this._isRecordingZoomStyle = false;
+		// @type {PostRecordingComposer} composer for post-recording composition
+		this._postRecordingComposer = null;
 
 		// Handle audioLevelObserver.
 		this._handleAudioLevelObserver();
@@ -1470,47 +1477,80 @@ class Room extends EventEmitter
 						.catch(() => {});
 				}
 
-				// If recording is in progress and this is a new video producer (like screen share),
-				// RESTART recording to include the new producer in the GStreamer compositor
-				// This approach ensures the screen share is properly recorded in the main video
-				if (this._gstreamer && producer.kind === 'video')
+				// Handle Zoom-style recording - add new producers seamlessly
+				if (this._isRecordingZoomStyle)
 				{
-					const isScreenShare = producer.appData?.share === true;
-					
 					logger.info(
-						'New video producer during recording - will restart recording [peerId:%s, isShare:%s]',
-						peer.id, isScreenShare);
+						'New producer during Zoom-style recording - adding to recording [peerId:%s, kind:%s]',
+						peer.id, producer.kind);
 					
-					// Restart recording to include the new producer
-					// Use a delay to ensure the producer is fully set up
+					// Add the new producer to the recording
 					setTimeout(() => {
-						const initiatorPeer = this._getJoinedPeers().find(
-							(p) => p.id === this._recordingInitiatorPeerId
-						);
-						
-						if (initiatorPeer && this._gstreamer)
+						if (this._isRecordingZoomStyle)
 						{
-							this._restartRecordingForProducerChange(initiatorPeer)
+							// Note: Arguments are (producer, producerPeer)
+							this._addProducerToZoomStyleRecording(producer, peer)
 								.then(() =>
 								{
-									logger.info('Recording restarted to include new producer [producerId:%s]', producer.id);
-									
-									// Notify the room
-									for (const otherPeer of this._getJoinedPeers())
-									{
-										otherPeer.notify('recordingInfo', {
-											message : isScreenShare 
-												? `${peer.data.displayName}'s screen share is now being recorded`
-												: `${peer.data.displayName} is now being recorded`
-										}).catch(() => {});
-									}
+									logger.info('Producer added to Zoom-style recording [producerId:%s]', producer.id);
 								})
 								.catch((error) =>
 								{
-									logger.error('Failed to restart recording for new producer: %o', error);
+									logger.error('Failed to add producer to Zoom-style recording: %o', error);
 								});
 						}
-					}, 2000); // Wait 2 seconds for producer to be fully set up
+					}, 1000); // Wait 1 second for producer to be fully set up
+				}
+				// Handle legacy GStreamer recording
+				else if (this._gstreamer && producer.kind === 'video')
+				{
+					const isScreenShare = producer.appData?.share === true;
+					
+					// Only restart for screen share, not for new webcam participants
+					if (isScreenShare)
+					{
+						logger.info(
+							'Screen share started during recording - will restart recording [peerId:%s]',
+							peer.id);
+						
+						// Restart recording to include the screen share
+						// Use a delay to ensure the producer is fully set up
+						setTimeout(() => {
+							const initiatorPeer = this._getJoinedPeers().find(
+								(p) => p.id === this._recordingInitiatorPeerId
+							);
+							
+							if (initiatorPeer && this._gstreamer)
+							{
+								this._restartRecordingForProducerChange(initiatorPeer)
+									.then(() =>
+									{
+										logger.info('Recording restarted to include screen share [producerId:%s]', producer.id);
+										
+										// Notify the room
+										for (const otherPeer of this._getJoinedPeers())
+										{
+											otherPeer.notify('recordingInfo', {
+												message : `${peer.data.displayName}'s screen share is now being recorded`
+											}).catch(() => {});
+										}
+									})
+									.catch((error) =>
+									{
+										logger.error('Failed to restart recording for screen share: %o', error);
+									});
+							}
+						}, 2000); // Wait 2 seconds for producer to be fully set up
+					}
+					else
+					{
+						// For new webcam participants, just log but don't restart
+						// They won't appear in the recording until it's restarted manually
+						// or until a screen share starts
+						logger.info(
+							'New webcam producer during recording - NOT restarting (participant will appear on next restart) [peerId:%s]',
+							peer.id);
+					}
 				}
 
 				break;
@@ -1549,6 +1589,12 @@ class Room extends EventEmitter
 								.catch(() => {});
 						}
 					}
+				}
+
+				// Handle Zoom-style recording before closing
+				if (this._isRecordingZoomStyle)
+				{
+					this._handleProducerCloseForZoomStyleRecording(producer);
 				}
 
 				producer.close();
@@ -2038,11 +2084,23 @@ class Room extends EventEmitter
 				if (!peer.data.joined)
 					throw new Error('Peer not yet joined');
 
-				logger.info('startRecording() [peerId:%s]', peer.id);
+				// Check recording mode from config
+				const recordingMode = config.recording.mode || 'post-processing';
+
+				logger.info('startRecording() [peerId:%s, mode:%s]', peer.id, recordingMode);
 
 				try
 				{
-					await this._startRecording({ peer });
+					if (recordingMode === 'live')
+					{
+						// Live composition with GStreamer
+						await this._startRecording({ peer });
+					}
+					else
+					{
+						// Post-processing mode (individual streams + FFmpeg)
+						await this._startRecordingZoomStyle(peer);
+					}
 
 					accept();
 				}
@@ -2066,7 +2124,15 @@ class Room extends EventEmitter
 
 				try
 				{
-					await this._stopRecording({ reason: 'user_requested' });
+					// Check which recording style is active
+					if (this._isRecordingZoomStyle)
+					{
+						await this._stopRecordingZoomStyle();
+					}
+					else
+					{
+						await this._stopRecording({ reason: 'user_requested' });
+					}
 
 					accept();
 				}
@@ -2086,7 +2152,7 @@ class Room extends EventEmitter
 				if (!peer.data.joined)
 					throw new Error('Peer not yet joined');
 
-				const isRecording = Boolean(this._gstreamer);
+				const isRecording = this._isRecordingZoomStyle || Boolean(this._gstreamer);
 				const initiator = isRecording 
 					? this._getJoinedPeers().find((p) => p.id === this._recordingInitiatorPeerId)
 					: null;
@@ -3651,6 +3717,7 @@ class Room extends EventEmitter
 
 	/**
 	 * Merge multiple recording segments into a single file using FFmpeg
+	 * Two-step process: 1) Normalize timestamps in each segment, 2) Concatenate
 	 */
 	async _mergeRecordingSegments(segments, baseFileName, initiatorPeerId)
 	{
@@ -3758,41 +3825,100 @@ class Room extends EventEmitter
 			return;
 		}
 
-		// Multiple segments - use concat filter with re-encoding for smooth transitions
-		// This handles segments with different video layouts properly
+		// STEP 1: Normalize timestamps in each segment
 		logger.info('----------------------------------------');
-		logger.info('🚀 Starting FFmpeg merge with re-encoding...');
-		logger.info('   Using concat filter for seamless merge of different layouts');
+		logger.info('📐 STEP 1: Normalizing timestamps in each segment...');
 
-		// Build FFmpeg arguments with concat filter
-		const inputArgs = [];
-		const filterInputs = [];
-		
-		existingSegments.forEach((segment, index) =>
+		const fixedSegments = [];
+
+		for (let i = 0; i < existingSegments.length; i++)
 		{
-			inputArgs.push('-i', segment);
-			filterInputs.push(`[${index}:v:0][${index}:a:0]`);
-		});
+			const segment = existingSegments[i];
+			const fixedPath = segment.replace('.webm', `-fixed-${i}.webm`);
 
-		// Concat filter for proper merging of different layouts
-		const filterComplex = `${filterInputs.join('')}concat=n=${existingSegments.length}:v=1:a=1[outv][outa]`;
+			logger.info('   🔧 Fixing segment %d/%d: %s', i + 1, existingSegments.length, segment);
 
+			try
+			{
+				await new Promise((resolve, reject) =>
+				{
+					const args = [
+						'-i', segment,
+						'-fflags', '+genpts+igndts', // Generate fresh PTS, ignore broken DTS
+						'-avoid_negative_ts', 'make_zero', // Fix negative timestamps
+						'-c:v', 'libvpx',
+						'-b:v', '3M',
+						'-crf', '10',
+						'-deadline', 'realtime',
+						'-cpu-used', '8',
+						'-g', '30', // Keyframe every 30 frames for clean cuts
+						'-c:a', 'libopus',
+						'-b:a', '128k',
+						'-y',
+						fixedPath
+					];
+
+					const proc = spawn('ffmpeg', args);
+					let output = '';
+
+					proc.stderr.on('data', (data) =>
+					{
+						output += data.toString();
+						const progressMatch = data.toString().match(/time=(\d+:\d+:\d+\.\d+)/);
+
+						if (progressMatch)
+						{
+							logger.info('      Progress: %s', progressMatch[1]);
+						}
+					});
+
+					proc.on('close', (code) =>
+					{
+						if (code === 0)
+						{
+							const stats = fs.statSync(fixedPath);
+
+							logger.info('   ✅ Fixed segment %d: %s (%d bytes)',
+								i + 1, fixedPath, stats.size);
+							resolve();
+						}
+						else
+						{
+							logger.error('   ❌ Failed to fix segment %d (code %d)', i + 1, code);
+							reject(new Error(`FFmpeg failed with code ${code}`));
+						}
+					});
+
+					proc.on('error', reject);
+				});
+
+				fixedSegments.push(fixedPath);
+			}
+			catch (error)
+			{
+				logger.error('   ❌ Error fixing segment %d: %s', i + 1, error.message);
+				// Use original segment as fallback
+				fixedSegments.push(segment);
+			}
+		}
+
+		// STEP 2: Create concat file and merge normalized segments
+		logger.info('----------------------------------------');
+		logger.info('🔗 STEP 2: Concatenating %d normalized segments...', fixedSegments.length);
+
+		const concatFilePath = path.join(recordingsDir, `concat-${Date.now()}.txt`);
+		const concatContent = fixedSegments.map((s) => `file '${path.resolve(s)}'`).join('\n');
+
+		fs.writeFileSync(concatFilePath, concatContent);
+		logger.info('   📋 Created concat file: %s', concatFilePath);
+
+		// Merge using concat demuxer (segments are now normalized, so -c copy works)
 		const ffmpegArgs = [
-			...inputArgs,
-			'-filter_complex', filterComplex,
-			'-map', '[outv]',
-			'-map', '[outa]',
-			// Re-encode video for smooth merging between different layouts
-			'-c:v', 'libvpx',           // VP8 encoder for WebM
-			'-b:v', '3M',               // 3 Mbps bitrate
-			'-crf', '15',               // Quality (lower = better)
-			'-deadline', 'realtime',    // Fast encoding
-			'-cpu-used', '8',           // Fastest CPU preset
-			'-threads', '4',            // Use multiple threads
-			// Re-encode audio
-			'-c:a', 'libopus',          // Opus encoder for WebM
-			'-b:a', '128k',             // Audio bitrate
-			'-y',                       // Overwrite output
+			'-f', 'concat',
+			'-safe', '0',
+			'-i', concatFilePath,
+			'-c', 'copy', // Can use copy now since segments are normalized
+			'-y',
 			finalPath
 		];
 
@@ -3800,16 +3926,10 @@ class Room extends EventEmitter
 
 		const ffmpeg = spawn('ffmpeg', ffmpegArgs);
 
-		ffmpeg.stdout.on('data', (data) =>
-		{
-			logger.info('📹 FFmpeg: %s', data.toString().trim());
-		});
-
 		ffmpeg.stderr.on('data', (data) =>
 		{
 			const msg = data.toString().trim();
 
-			// FFmpeg outputs progress to stderr
 			if (msg.includes('frame=') || msg.includes('time='))
 			{
 				logger.info('📹 FFmpeg progress: %s', msg);
@@ -3823,6 +3943,28 @@ class Room extends EventEmitter
 		ffmpeg.on('close', (code) =>
 		{
 			logger.info('----------------------------------------');
+
+			// Clean up concat file
+			try
+			{
+				fs.unlinkSync(concatFilePath);
+				logger.info('   🗑 Deleted concat file');
+			}
+			catch (e) { /* ignore */ }
+
+			// Clean up fixed segments
+			for (const fixed of fixedSegments)
+			{
+				if (fixed.includes('-fixed-'))
+				{
+					try
+					{
+						fs.unlinkSync(fixed);
+						logger.info('   🗑 Deleted fixed segment: %s', path.basename(fixed));
+					}
+					catch (e) { /* ignore */ }
+				}
+			}
 
 			if (code === 0)
 			{
@@ -3838,8 +3980,8 @@ class Room extends EventEmitter
 						stats.size, stats.size / (1024 * 1024));
 				}
 
-				// Clean up segment files
-				logger.info('🧹 Cleaning up segment files...');
+				// Clean up original segment files
+				logger.info('🧹 Cleaning up original segment files...');
 
 				for (const segment of existingSegments)
 				{
@@ -3910,6 +4052,553 @@ class Room extends EventEmitter
 				finalFileName : finalFileName,
 				initiatorPeerId
 			}).catch(() => {});
+		}
+	}
+
+	// =========================================================================
+	// ZOOM-STYLE RECORDING METHODS
+	// These methods record each stream individually and compose after
+	// =========================================================================
+
+	/**
+	 * Start Zoom-style recording - records each stream separately
+	 * @param {Object} peer - The peer initiating the recording
+	 */
+	async _startRecordingZoomStyle(peer)
+	{
+		if (this._recordingLock)
+		{
+			throw new Error('Recording operation in progress');
+		}
+
+		if (this._isRecordingZoomStyle || this._gstreamer)
+		{
+			throw new Error('Recording already in progress');
+		}
+
+		this._recordingLock = true;
+		this._recordingLockTime = Date.now();
+
+		try
+		{
+			logger.info('\n' + '='.repeat(60));
+			logger.info('🎬 STARTING ZOOM-STYLE RECORDING');
+			logger.info('='.repeat(60));
+
+			this._isRecordingZoomStyle = true;
+			this._recordingStartTime = Date.now();
+			this._recordingInitiatorPeerId = peer.id;
+
+			// Create room-specific recordings directory
+			const recordingsDir = `./recordings/${this._roomId}`;
+
+			if (!fs.existsSync(recordingsDir))
+			{
+				fs.mkdirSync(recordingsDir, { recursive: true });
+				logger.info('Created room recordings directory: %s', recordingsDir);
+			}
+
+			// Initialize the post-recording composer
+		this._postRecordingComposer = new PostRecordingComposer({
+			roomId             : this._roomId,
+			outputDir          : `./recordings/${this._roomId}`,
+			recordingStartTime : this._recordingStartTime,
+			recordingEndTime   : null,  // Will be set when recording stops
+			layoutMode         : 'static'  // Use 'static' for reliable composition, 'dynamic' for transitions
+		});			// Get all current producers
+			const producers = [];
+
+			for (const joinedPeer of this._getJoinedPeers())
+			{
+				if (joinedPeer.data.producers)
+				{
+					for (const producer of joinedPeer.data.producers.values())
+					{
+						if (!producer.closed)
+						{
+							producers.push({ producer, peer: joinedPeer });
+						}
+					}
+				}
+			}
+
+			logger.info('Found %d producers to record', producers.length);
+
+			// Start recording each producer individually
+			for (const { producer, peer: producerPeer } of producers)
+			{
+				await this._startRecordingProducerZoomStyle(producer, producerPeer);
+			}
+
+			logger.info('='.repeat(60));
+			logger.info('✅ Recording started with %d streams', this._streamRecorders.size);
+			logger.info('='.repeat(60) + '\n');
+
+			// Notify all peers
+			for (const otherPeer of this._getJoinedPeers())
+			{
+				otherPeer.notify('recordingStarted', {
+					initiatorPeerId : peer.id,
+					initiatorName   : peer.data.displayName,
+					startTime       : this._recordingStartTime,
+					style           : 'zoom'
+				}).catch(() => {});
+			}
+
+			return { success: true, streams: this._streamRecorders.size };
+		}
+		catch (error)
+		{
+			logger.error('_startRecordingZoomStyle() failed: %s', error.message);
+			this._isRecordingZoomStyle = false;
+			this._recordingStartTime = undefined;
+			this._recordingInitiatorPeerId = undefined;
+			throw error;
+		}
+		finally
+		{
+			this._recordingLock = false;
+			this._recordingLockTime = null;
+		}
+	}
+
+	/**
+	 * Start recording a single producer (Zoom-style)
+	 */
+	async _startRecordingProducerZoomStyle(producer, producerPeer)
+	{
+		const producerId = producer.id;
+		const peerId = producerPeer.id;
+		const peerName = producerPeer.data.displayName || 'Unknown';
+		const kind = producer.kind;
+		const isScreenShare = producer.appData && producer.appData.share === true;
+		const codec = producer.rtpParameters.codecs[0].mimeType.split('/')[1];
+
+		// Create unique ID for this stream
+		const streamId = `${peerId}-${kind}-${isScreenShare ? 'screen' : 'cam'}-${Date.now()}`;
+
+		// Determine output file extension based on codec
+		const extension = (codec.toUpperCase() === 'H264') ? 'mp4' : 'webm';
+		
+		// Prepare room-specific recording folders
+		const roomRecordingsDir = `./recordings/${this._roomId}`;
+		if (!fs.existsSync(roomRecordingsDir))
+		{
+			fs.mkdirSync(roomRecordingsDir, { recursive: true });
+		}
+
+		// Create a raw subfolder with a session timestamp to segregate individual files
+		if (!this._recordingSessionId)
+		{
+			this._recordingSessionId = this._recordingStartTime || Date.now();
+		}
+		const rawDir = `${roomRecordingsDir}/raw/${this._recordingSessionId}`;
+		if (!fs.existsSync(rawDir))
+		{
+			fs.mkdirSync(rawDir, { recursive: true });
+		}
+
+		// Individual stream output goes inside raw/{timestamp}/
+		const outputPath = `${rawDir}/stream-${streamId}.${extension}`;
+
+		logger.info('Starting individual recorder: %s (%s, %s)',
+			peerName, kind, isScreenShare ? 'screen' : 'webcam');
+
+		try
+		{
+			// Create the individual stream recorder
+			const recorder = new IndividualStreamRecorder({
+				id            : streamId,
+				peerId        : peerId,
+				peerName      : peerName,
+				kind          : kind,
+				codec         : codec,
+				isScreenShare : isScreenShare,
+				outputPath    : outputPath
+			});
+
+			// Start the recorder and get the RTP port
+			const { rtpPort, rtcpPort } = await recorder.start();
+
+			// Create a PlainTransport for recording
+			const transport = await this._mediasoupRouter.createPlainTransport({
+				listenIp : { ip: '127.0.0.1', announcedIp: null },
+				rtcpMux  : false,
+				comedia  : false
+			});
+
+			// Connect transport to recorder's port
+			await transport.connect({
+				ip       : '127.0.0.1',
+				port     : rtpPort,
+				rtcpPort : rtcpPort
+			});
+
+			// Create a consumer for this producer
+			const consumer = await transport.consume({
+				producerId      : producer.id,
+				rtpCapabilities : this._mediasoupRouter.rtpCapabilities,
+				paused          : false
+			});
+
+		// Resume consumer
+		await consumer.resume();
+
+		// Request keyframe for video
+		if (kind === 'video')
+		{
+			await consumer.requestKeyFrame();
+			
+			// For screen shares, request keyframes more aggressively
+			if (isScreenShare)
+			{
+				// Request multiple keyframes with delays to ensure screen share starts properly
+				for (let i = 0; i < 5; i++)
+				{
+					setTimeout(() =>
+					{
+						if (!consumer.closed)
+						{
+							consumer.requestKeyFrame().catch(() => {});
+						}
+					}, (i + 1) * 500); // 500ms, 1000ms, 1500ms, 2000ms, 2500ms
+				}
+			}
+			else
+			{
+				// For webcams, just one additional request
+				setTimeout(() =>
+				{
+					if (!consumer.closed)
+					{
+						consumer.requestKeyFrame().catch(() => {});
+					}
+				}, 1000);
+			}
+		}			// Store references
+			this._streamRecorders.set(streamId, {
+				recorder  : recorder,
+				transport : transport,
+				consumer  : consumer,
+				producer  : producer,
+				peerId    : peerId
+			});
+
+			logger.info('  ✅ Recorder started: %s -> port %d', streamId, rtpPort);
+		}
+		catch (error)
+		{
+			logger.error('  ❌ Failed to start recorder for %s: %s', peerName, error.message);
+		}
+	}
+
+	/**
+	 * Stop Zoom-style recording
+	 */
+	async _stopRecordingZoomStyle()
+	{
+		if (this._recordingLock)
+		{
+			throw new Error('Recording operation in progress');
+		}
+
+		if (!this._isRecordingZoomStyle)
+		{
+			throw new Error('No Zoom-style recording in progress');
+		}
+
+		this._recordingLock = true;
+		this._recordingLockTime = Date.now();
+
+		try
+		{
+			logger.info('\n' + '='.repeat(60));
+			logger.info('🛑 STOPPING ZOOM-STYLE RECORDING');
+			logger.info('='.repeat(60));
+
+			const recordingEndTime = Date.now();
+			const duration = (recordingEndTime - this._recordingStartTime) / 1000;
+
+			logger.info('Recording duration: %.1f seconds', duration);
+			logger.info('Stopping %d stream recorders in parallel...', this._streamRecorders.size);
+
+			// First, close all consumers and transports immediately (non-blocking)
+			for (const [ streamId, recorderInfo ] of this._streamRecorders)
+			{
+				try
+				{
+					// Close consumer
+					if (recorderInfo.consumer && !recorderInfo.consumer.closed)
+					{
+						recorderInfo.consumer.close();
+					}
+
+					// Close transport
+					if (recorderInfo.transport && !recorderInfo.transport.closed)
+					{
+						recorderInfo.transport.close();
+					}
+				}
+				catch (error)
+				{
+					logger.error('  Error closing transport for %s: %s', streamId, error.message);
+				}
+			}
+
+			// Stop all recorders in PARALLEL
+			const stopPromises = [];
+
+			for (const [ streamId, recorderInfo ] of this._streamRecorders)
+			{
+				logger.info('  Stopping: %s', streamId);
+
+				const stopPromise = recorderInfo.recorder.stop()
+					.then((metadata) =>
+					{
+						// Add to composer if has content
+						if (this._postRecordingComposer && metadata.fileSize > 0)
+						{
+							this._postRecordingComposer.addStream(metadata);
+						}
+
+						return { streamId, success: true, metadata };
+					})
+					.catch((error) =>
+					{
+						logger.error('  Error stopping %s: %s', streamId, error.message);
+
+						return { streamId, success: false, error: error.message };
+					});
+
+				stopPromises.push(stopPromise);
+			}
+
+			// Wait for all recorders to stop
+			const results = await Promise.all(stopPromises);
+			const successCount = results.filter((r) => r.success).length;
+
+			logger.info('Stopped %d/%d recorders successfully', successCount, results.length);
+
+			// Clear recorders
+			this._streamRecorders.clear();
+			this._isRecordingZoomStyle = false;
+
+			// Notify peers that recording stopped, composition starting
+			for (const peer of this._getJoinedPeers())
+			{
+				peer.notify('recordingStopped', {
+					roomId    : this._roomId,
+					duration  : duration,
+					composing : true,
+					message   : 'Recording stopped. Video is being composed...'
+				}).catch(() => {});
+			}
+
+			logger.info('='.repeat(60));
+			logger.info('📼 All streams stopped. Starting composition...');
+			logger.info('='.repeat(60) + '\n');
+
+			// Start composition in background
+			this._composeRecordingInBackground();
+
+			// Clear remaining state
+			const initiatorPeerId = this._recordingInitiatorPeerId;
+
+			this._recordingInitiatorPeerId = undefined;
+			this._recordingStartTime = undefined;
+
+			return { success: true, duration: duration, composing: true };
+		}
+		catch (error)
+		{
+			logger.error('_stopRecordingZoomStyle() failed: %s', error.message);
+			throw error;
+		}
+		finally
+		{
+			this._recordingLock = false;
+			this._recordingLockTime = null;
+		}
+	}
+
+	/**
+	 * Compose recording in background after stopping
+	 */
+	async _composeRecordingInBackground()
+	{
+		// Run composition in background (non-blocking)
+		setImmediate(async () =>
+		{
+			try
+			{
+				if (!this._postRecordingComposer)
+				{
+					logger.error('No composer available for composition');
+
+					return;
+				}
+
+				const streams = this._postRecordingComposer.getStreams();
+
+				if (streams.length === 0)
+				{
+					logger.error('No streams to compose');
+
+					// Notify peers
+					for (const peer of this._getJoinedPeers())
+					{
+						peer.notify('recordingFailed', {
+							roomId : this._roomId,
+							error  : 'No valid streams were recorded'
+						}).catch(() => {});
+					}
+
+					return;
+				}
+
+				logger.info('Starting background composition with %d streams...', streams.length);
+
+				// Set recording end time
+				this._postRecordingComposer._recordingEndTime = Date.now();
+
+				// Notify peers that composition is in progress
+				for (const peer of this._getJoinedPeers())
+				{
+					peer.notify('recordingComposing', {
+						roomId  : this._roomId,
+						streams : streams.length,
+						message : 'Composing video from recorded streams...'
+					}).catch(() => {});
+				}
+
+				// Compose the final video
+				const result = await this._postRecordingComposer.compose();
+
+				if (result && result.outputPath)
+				{
+					// Get file info
+					const stats = fs.statSync(result.outputPath);
+					const fileSizeMB = (stats.size / 1024 / 1024).toFixed(2);
+
+					logger.info('\n' + '='.repeat(60));
+					logger.info('🎉 RECORDING COMPOSITION COMPLETE!');
+					logger.info('📁 File: %s', result.outputPath);
+					logger.info('📊 Size: %s MB', fileSizeMB);
+					logger.info('='.repeat(60) + '\n');
+
+					// Notify peers that recording is ready
+					for (const peer of this._getJoinedPeers())
+					{
+						peer.notify('recordingReady', {
+							roomId     : this._roomId,
+							filePath   : result.outputPath,
+							fileSize   : stats.size,
+							fileSizeMB : fileSizeMB
+						}).catch(() => {});
+					}
+				}
+				else
+				{
+					throw new Error('Composition returned no output');
+				}
+			}
+			catch (error)
+			{
+				logger.error('Background composition failed: %s', error.message);
+
+				// Notify peers of failure
+				for (const peer of this._getJoinedPeers())
+				{
+					peer.notify('recordingFailed', {
+						roomId : this._roomId,
+						error  : error.message
+					}).catch(() => {});
+				}
+			}
+			finally
+			{
+				this._postRecordingComposer = null;
+			}
+		});
+	}
+
+	/**
+	 * Add a new producer to the Zoom-style recording
+	 */
+	async _addProducerToZoomStyleRecording(producer, producerPeer)
+	{
+		if (!this._isRecordingZoomStyle)
+		{
+			return;
+		}
+
+		logger.info('New producer during Zoom-style recording - adding: %s (%s)',
+			producerPeer.data.displayName, producer.kind);
+
+		try
+		{
+			await this._startRecordingProducerZoomStyle(producer, producerPeer);
+			logger.info('Successfully added new producer to Zoom-style recording');
+		}
+		catch (error)
+		{
+			logger.error('Failed to add producer to Zoom-style recording: %s', error.message);
+		}
+	}
+
+	/**
+	 * Handle producer close during Zoom-style recording
+	 */
+	_handleProducerCloseForZoomStyleRecording(producer)
+	{
+		if (!this._isRecordingZoomStyle)
+		{
+			return;
+		}
+
+		// Find and stop the recorder for this producer
+		for (const [ streamId, recorderInfo ] of this._streamRecorders)
+		{
+			if (recorderInfo.producer && recorderInfo.producer.id === producer.id)
+			{
+				logger.info('Producer closed during recording, stopping stream: %s', streamId);
+
+				try
+				{
+					// Close consumer
+					if (recorderInfo.consumer && !recorderInfo.consumer.closed)
+					{
+						recorderInfo.consumer.close();
+					}
+
+					// Close transport
+					if (recorderInfo.transport && !recorderInfo.transport.closed)
+					{
+						recorderInfo.transport.close();
+					}
+
+					// Stop recorder and add metadata to composer
+					recorderInfo.recorder.stop().then((metadata) =>
+					{
+						if (this._postRecordingComposer && metadata.fileSize > 0)
+						{
+							this._postRecordingComposer.addStream(metadata);
+						}
+					}).catch((error) =>
+					{
+						logger.error('Error stopping recorder for closed producer: %s', error.message);
+					});
+
+					// Remove from map
+					this._streamRecorders.delete(streamId);
+				}
+				catch (error)
+				{
+					logger.error('Error handling producer close for recording: %s', error.message);
+				}
+
+				break;
+			}
 		}
 	}
 

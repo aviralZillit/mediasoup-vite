@@ -1,9 +1,9 @@
 {
-  "name": "mediasoup-demo-server",
+  "name": "mediasoup-server",
   "version": "3.0.0",
   "private": true,
-  "description": "mediasoup demo server",
-  "author": "Iñaki Baz Castillo <ibc@aliax.net>",
+  "description": "mediasoup  server",
+  "author": "Aviral Singh Pal",
   "license": "All Rights Reserved",
   "main": "server.js",
   "scripts": {
@@ -14,6 +14,9 @@
     "monitor": "node monitoring-dashboard.js"
   },
   "dependencies": {
+    "@aws-sdk/client-mediaconvert": "^3.687.0",
+    "@aws-sdk/client-s3": "^3.687.0",
+    "@aws-sdk/s3-request-presigner": "^3.687.0",
     "@sitespeed.io/throttle": "^3.1.1",
     "awaitqueue": "^2.3.3",
     "axios": "^0.27.2",
