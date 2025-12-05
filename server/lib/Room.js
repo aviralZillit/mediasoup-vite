@@ -2078,18 +2078,18 @@ class Room extends EventEmitter
 				break;
 			}
 
-			case 'startRecording':
-			{
-				// Ensure the Peer is joined.
-				if (!peer.data.joined)
-					throw new Error('Peer not yet joined');
+		case 'startRecording':
+		{
+			// Ensure the Peer is joined.
+			if (!peer.data.joined)
+				throw new Error('Peer not yet joined');
 
-				// Check recording mode from config
-				const recordingMode = config.recording.mode || 'post-processing';
+			// Check recording mode from config (with safety check)
+			const recordingMode = (config.recording && config.recording.mode) 
+				? config.recording.mode 
+				: 'post-processing';
 
-				logger.info('startRecording() [peerId:%s, mode:%s]', peer.id, recordingMode);
-
-				try
+			logger.info('startRecording() [peerId:%s, mode:%s]', peer.id, recordingMode);				try
 				{
 					if (recordingMode === 'live')
 					{
