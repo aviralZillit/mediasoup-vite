@@ -1340,6 +1340,66 @@ class Room extends EventEmitter
 				break;
 			}
 
+			case 'syncState':
+			{
+				// Ensure the Peer is joined.
+				if (!peer.data.joined)
+					throw new Error('Peer not yet joined');
+
+				logger.debug('syncState() [peerId:%s]', peer.id);
+
+				const peers = [];
+				const producers = [];
+
+				// Get all joined peers except the requesting peer
+				const joinedPeers = [
+					...this._getJoinedPeers({ excludePeer: peer }),
+					...this._broadcasters.values()
+				];
+
+				for (const otherPeer of joinedPeers)
+				{
+					// Add peer info
+					peers.push({
+						id          : otherPeer.id,
+						displayName : otherPeer.data.displayName,
+						device      : otherPeer.data.device
+					});
+
+					// Add all producers from this peer that the requesting peer can consume
+					for (const producer of otherPeer.data.producers.values())
+					{
+						// Check if the peer can consume this producer
+						const canConsume = this._mediasoupRouter.canConsume({
+							producerId      : producer.id,
+							rtpCapabilities : peer.data.rtpCapabilities
+						});
+
+						if (canConsume)
+						{
+							producers.push({
+								id             : producer.id,
+								peerId         : otherPeer.id,
+								kind           : producer.kind,
+								rtpParameters  : producer.rtpParameters,
+								type           : producer.type,
+								appData        : producer.appData,
+								producerPaused : producer.paused
+							});
+						}
+					}
+				}
+
+				logger.debug(
+					'syncState() result [peerId:%s, peers:%d, producers:%d]',
+					peer.id, peers.length, producers.length
+				);
+
+				accept({ peers, producers });
+
+				break;
+			}
+
 			case 'produce':
 			{
 				// Ensure the Peer is joined.
