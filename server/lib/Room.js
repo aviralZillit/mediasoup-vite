@@ -332,20 +332,32 @@ class Room extends EventEmitter
 					if (userToUpdate) 
 					{
 						// Check if user ever answered the call (was ever 'incall')
-						const wasEverInCall = userToUpdate.current_status === 'incall' || userToUpdate.current_status === 'caller';								   
 
-						if (wasEverInCall) 
+						// Only mark as missed if status is still 'invited' or 'ringing' when leaving
+						const missedStatuses = [ 'invited', 'ringing' ];
+
+						if (missedStatuses.includes(userToUpdate.current_status)) 
 						{
-							// User was in the call and then left
-							userToUpdate.current_status = 'left';
-							logger.info(`✅ User ${peer.id} marked as left (was in call) in room ${this._roomId}`);
+							userToUpdate.missed_call = true;
+							// Optionally keep as invited or set to missed
+							userToUpdate.current_status = 'invited';
+							logger.info(`✅ User ${peer.id} marked as missed call (status: ${userToUpdate.current_status}) in room ${this._roomId}`);
 						}
+
 						else 
 						{
-							// User never answered - mark as missed call
-							userToUpdate.missed_call = true;
-							userToUpdate.current_status = 'invited'; // Keep as invited but mark missed
-							logger.info(`✅ User ${peer.id} marked as missed call (never answered) in room ${this._roomId}`);
+							// Only set to 'left' if user was actually in the call
+							const activeStatuses = [ 'incall', 'caller' ];
+
+							if (activeStatuses.includes(userToUpdate.current_status)) 
+							{
+								userToUpdate.current_status = 'left';
+								logger.info(`✅ User ${peer.id} marked as left (status: left) in room ${this._roomId}`);
+							}
+							else 
+							{
+								logger.info(`ℹ️ User ${peer.id} left with status: ${userToUpdate.current_status} (no change)`);
+							}
 						}
 						
 						call.markModified('call_users');
