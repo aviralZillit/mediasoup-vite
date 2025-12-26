@@ -279,17 +279,31 @@ class Room extends EventEmitter
 		peer.data.dataProducers = new Map();
 		peer.data.dataConsumers = new Map();
 
-		peer.on('request', (request, accept, reject) =>
-		{
+
+		peer.on('request', async (request, accept, reject) => {
 			logger.debug(
 				'protoo Peer "request" event [method:%s, peerId:%s]',
 				request.method, peer.id);
 
-			this._handleProtooRequest(peer, request, accept, reject)
-				.catch((error) =>
-				{
-					logger.error('request failed:%o', error);
+			// If this is a join request, update the user's status to 'incall'
+			if (request.method === 'join') {
+				const call = await CallRepo.getCall({ filters: { room_id: this._roomId } });
+				if (call) {
+					const userToUpdate = call.call_users.find(
+						(user) => user.user_id.toString() === peer.id
+					);
+					if (userToUpdate && userToUpdate.current_status !== 'incall') {
+						userToUpdate.current_status = 'incall';
+						call.markModified('call_users');
+						await call.save();
+						logger.info(`✅ User ${peer.id} marked as 'incall' on join in room ${this._roomId}`);
+					}
+				}
+			}
 
+			this._handleProtooRequest(peer, request, accept, reject)
+				.catch((error) => {
+					logger.error('request failed:%o', error);
 					reject(error);
 				});
 		});
