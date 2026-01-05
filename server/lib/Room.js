@@ -279,20 +279,25 @@ class Room extends EventEmitter
 		peer.data.dataProducers = new Map();
 		peer.data.dataConsumers = new Map();
 
-
-		peer.on('request', async (request, accept, reject) => {
+		peer.on('request', async (request, accept, reject) => 
+		{
 			logger.debug(
 				'protoo Peer "request" event [method:%s, peerId:%s]',
 				request.method, peer.id);
 
 			// If this is a join request, update the user's status to 'incall'
-			if (request.method === 'join') {
+			if (request.method === 'join') 
+			{
 				const call = await CallRepo.getCall({ filters: { room_id: this._roomId } });
-				if (call) {
+
+				if (call) 
+				{
 					const userToUpdate = call.call_users.find(
 						(user) => user.user_id.toString() === peer.id
 					);
-					if (userToUpdate && userToUpdate.current_status !== 'incall') {
+
+					if (userToUpdate && userToUpdate.current_status !== 'incall') 
+					{
 						userToUpdate.current_status = 'incall';
 						call.markModified('call_users');
 						await call.save();
@@ -302,7 +307,8 @@ class Room extends EventEmitter
 			}
 
 			this._handleProtooRequest(peer, request, accept, reject)
-				.catch((error) => {
+				.catch((error) => 
+				{
 					logger.error('request failed:%o', error);
 					reject(error);
 				});
@@ -1664,6 +1670,31 @@ class Room extends EventEmitter
 				const stats = await consumer.getStats();
 
 				accept(stats);
+
+				break;
+			}
+
+			case 'getConsumers':
+			{
+			// Get consumers for a specific call/room by roomId
+				const { roomId } = request.data;
+
+				// Return aggregated consumers stats for the whole room
+				const consumers = this.getConsumersStats();
+
+				const response = {
+					roomId         : this._roomId,
+					callUUID       : this._roomId,
+					totalConsumers : consumers.length,
+					consumers      : consumers
+				};
+
+				// Reply to the request with full consumer details
+				accept(response);
+
+				// Also emit a server notification (protoo notify) back to the requesting peer
+				// so clients that prefer an event can listen for 'consumersList'.
+				peer.notify('consumersList', response).catch(() => {});
 
 				break;
 			}
