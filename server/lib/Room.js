@@ -4,6 +4,7 @@ const mediasoup = require('mediasoup');
 const protoo = require('protoo-server');
 // const rtp = require('rtp.js');
 const throttle = require('@sitespeed.io/throttle');
+const axios = require('axios');
 const Logger = require('./Logger');
 const utils = require('./utils');
 const config = require('../config');
@@ -397,6 +398,36 @@ class Room extends EventEmitter
 						await call.save();
 
 						logger.info(`✅ Call auto-ended for room ${this._roomId} - no active participants`);
+
+						// Notify zillit_calling via webhook so it can emit to all chat room members
+						try 
+						{
+							const zillit_calling_url = process.env.ZILLIT_CALLING_URL;
+							
+							if (zillit_calling_url && call.chat_room_id) 
+							{
+								const webhookUrl = `${zillit_calling_url}/api/v2/mediasoup-call/call-ended-webhook`;
+								
+								await axios.post(webhookUrl, {
+									room_id      : this._roomId,
+									chat_room_id : call.chat_room_id,
+									project_id   : call.project_id.toString()
+								}, {
+									timeout : 5000 // 5 second timeout
+								});
+
+								logger.info(`✅ Notified zillit_calling about call end for room ${this._roomId}`);
+							}
+							else 
+							{
+								logger.warn(`⚠️  Webhook notification skipped: ${!zillit_calling_url ? 'ZILLIT_CALLING_URL not set' : 'No chat_room_id'}`);
+							}
+						}
+						catch (webhookError) 
+						{
+							logger.error(`❌ Failed to notify zillit_calling webhook: ${webhookError.message}`);
+							// Don't throw - continue with room closure even if webhook fails
+						}
 
 						// Close the MediaSoup room since call has ended
 						this.close();
