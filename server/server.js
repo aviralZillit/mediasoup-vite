@@ -11,6 +11,8 @@ const config = require('./config');
 /* eslint-disable no-console */
 console.log('process.env.DEBUG:', process.env.DEBUG);
 console.log('config.js:\n%s', JSON.stringify(config, null, '  '));
+
+console.log('Loaded environment variables:\n%s', JSON.stringify(process.env, null, '  '));
 /* eslint-enable no-console */
 
 const mongoose = require('mongoose');
