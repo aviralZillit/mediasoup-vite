@@ -34,6 +34,61 @@ const MediasoupCallsRepository = require('./repositories/MediasoupCalls');
 
 const logger = new Logger();
 
+// Simple in-memory rate limiter for API endpoints
+const rateLimitStore = new Map();
+const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 30; // 30 requests per minute
+
+function rateLimiter(req, res, next) 
+{
+	const clientIp = req.ip || req.connection.remoteAddress;
+	const now = Date.now();
+	const windowStart = now - RATE_LIMIT_WINDOW_MS;
+	
+	// Get or create rate limit entry for this IP
+	if (!rateLimitStore.has(clientIp)) 
+	{
+		rateLimitStore.set(clientIp, []);
+	}
+	
+	const requests = rateLimitStore.get(clientIp);
+	
+	// Remove old requests outside the current window
+	const recentRequests = requests.filter((timestamp) => timestamp > windowStart);
+	
+	if (recentRequests.length >= RATE_LIMIT_MAX_REQUESTS) 
+	{
+		return res.status(429).json({
+			success : false,
+			error   : 'Too many requests. Please try again later.'
+		});
+	}
+	
+	// Add current request timestamp
+	recentRequests.push(now);
+	rateLimitStore.set(clientIp, recentRequests);
+	
+	// Cleanup old entries periodically
+	if (Math.random() < 0.01) // 1% chance on each request
+	{
+		for (const [ ip, timestamps ] of rateLimitStore.entries()) 
+		{
+			const validTimestamps = timestamps.filter((ts) => ts > windowStart);
+			
+			if (validTimestamps.length === 0) 
+			{
+				rateLimitStore.delete(ip);
+			}
+			else 
+			{
+				rateLimitStore.set(ip, validTimestamps);
+			}
+		}
+	}
+	
+	next();
+}
+
 // Server start time for uptime calculation
 const serverStartTime = Date.now();
 
@@ -225,7 +280,7 @@ async function createExpressApp()
 	expressApp.get('/health', (req, res) => { res.status(200).json({ message: 'ok' }); });
 
 	// Active Group Calls API - Merges line 1 (call_users) and line 2 (guest_users) data
-	expressApp.get('/api/v2/active-group-calls', async (req, res, next) => 
+	expressApp.get('/api/v2/active-group-calls', rateLimiter, async (req, res, next) => 
 	{
 		try 
 		{
