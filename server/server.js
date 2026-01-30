@@ -242,8 +242,8 @@ async function createExpressApp()
 			// Transform the data to merge line 1 (call_users) and line 2 (guest_users)
 			const transformedCalls = activeCalls.map((call) => 
 			{
-				// Line 1: Regular call users
-				const line1Users = call.call_users.map((user) => ({
+				// Line 1: Regular call users (with defensive check for undefined/null)
+				const line1Users = (call.call_users || []).map((user) => ({
 					user_id        : user.user_id,
 					device_id      : user.device_id,
 					current_status : user.current_status,
@@ -254,8 +254,8 @@ async function createExpressApp()
 					user_type      : 'registered' // Distinguish from guest users
 				}));
 
-				// Line 2: Guest users
-				const line2Users = call.guest_users.map((user) => ({
+				// Line 2: Guest users (with defensive check for undefined/null)
+				const line2Users = (call.guest_users || []).map((user) => ({
 					user_name      : user.user_name,
 					user_type      : user.user_type,
 					current_status : user.current_status,
@@ -288,7 +288,8 @@ async function createExpressApp()
 						total_count   : line1Users.length + line2Users.length,
 						line1_count   : line1Users.length,
 						line2_count   : line2Users.length,
-						all_users     : [...line1Users, ...line2Users] // Combined array
+						// Combined array for client convenience (clients can merge line1 + line2 if preferred)
+						all_users     : [...line1Users, ...line2Users]
 					}
 				};
 			});
