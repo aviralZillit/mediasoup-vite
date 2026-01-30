@@ -280,6 +280,7 @@ async function createExpressApp()
 	expressApp.get('/health', (req, res) => { res.status(200).json({ message: 'ok' }); });
 
 	// Active Group Calls API - Merges line 1 (call_users) and line 2 (guest_users) data
+	// Note: Rate limited to 30 requests/minute per IP to prevent abuse
 	expressApp.get('/api/v2/active-group-calls', rateLimiter, async (req, res, next) => 
 	{
 		try 

@@ -4,6 +4,8 @@
 
 This endpoint retrieves all active group calls and merges line 1 (call_users) and line 2 (guest_users) data into a unified response structure.
 
+**Rate Limiting:** 30 requests per minute per IP address
+
 ### Request
 ```
 GET /api/v2/active-group-calls
@@ -137,6 +139,15 @@ GET /api/v2/active-group-calls
 
 If an error occurs, the API will return an error response with appropriate HTTP status code and error message.
 
+**Rate Limit Exceeded (429):**
+```json
+{
+  "success": false,
+  "error": "Too many requests. Please try again later."
+}
+```
+
+**Server Error (500):**
 ```json
 {
   "error": "Error message description"
