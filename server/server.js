@@ -30,6 +30,7 @@ const utils = require('./lib/utils');
 const Room = require('./lib/Room');
 const interactiveServer = require('./lib/interactiveServer');
 const interactiveClient = require('./lib/interactiveClient');
+const MediasoupCallsRepository = require('./repositories/MediasoupCalls');
 
 const logger = new Logger();
 
@@ -222,6 +223,88 @@ async function createExpressApp()
 	
 	// Health Check Route
 	expressApp.get('/health', (req, res) => { res.status(200).json({ message: 'ok' }); });
+
+	// Active Group Calls API - Merges line 1 (call_users) and line 2 (guest_users) data
+	expressApp.get('/api/v2/active-group-calls', async (req, res, next) => 
+	{
+		try 
+		{
+			// Query for active group calls
+			const activeCalls = await MediasoupCallsRepository.getCalls({
+				filters: {
+					call_mode      : 'group',
+					current_status : { $ne: 'ended' } // Not ended calls
+				},
+				sort  : { start_time: -1 },
+				limit : 100
+			});
+
+			// Transform the data to merge line 1 (call_users) and line 2 (guest_users)
+			const transformedCalls = activeCalls.map((call) => 
+			{
+				// Line 1: Regular call users
+				const line1Users = call.call_users.map((user) => ({
+					user_id        : user.user_id,
+					device_id      : user.device_id,
+					current_status : user.current_status,
+					missed_call    : user.missed_call,
+					deleted        : user.deleted,
+					created        : user.created,
+					updated        : user.updated,
+					user_type      : 'registered' // Distinguish from guest users
+				}));
+
+				// Line 2: Guest users
+				const line2Users = call.guest_users.map((user) => ({
+					user_name      : user.user_name,
+					user_type      : user.user_type,
+					current_status : user.current_status,
+					created        : user.created
+				}));
+
+				// Merge both lines into a single participants array
+				return {
+					_id               : call._id,
+					project_id        : call.project_id,
+					start_time        : call.start_time,
+					end_time          : call.end_time,
+					updated           : call.updated,
+					call_type         : call.call_type,
+					room_id           : call.room_id,
+					voip_token        : call.voip_token,
+					current_status    : call.current_status,
+					is_random_call    : call.is_random_call,
+					call_mode         : call.call_mode,
+					chat_room_id      : call.chat_room_id,
+					chat_room_name    : call.chat_room_name,
+					is_247_call       : call.is_247_call,
+					is_calendar_call  : call.is_calendar_call,
+					sender_user_id    : call.sender_user_id,
+					reciever_user_id  : call.reciever_user_id,
+					// Merged participants from both lines
+					participants      : {
+						line1         : line1Users,
+						line2         : line2Users,
+						total_count   : line1Users.length + line2Users.length,
+						line1_count   : line1Users.length,
+						line2_count   : line2Users.length,
+						all_users     : [...line1Users, ...line2Users] // Combined array
+					}
+				};
+			});
+
+			res.status(200).json({
+				success : true,
+				count   : transformedCalls.length,
+				data    : transformedCalls
+			});
+		}
+		catch (error) 
+		{
+			logger.error('Error fetching active group calls: %o', error);
+			next(error);
+		}
+	});
 
 	// Real-time Analytics Routes
 	expressApp.get('/analytics/rooms', (req, res) => 
