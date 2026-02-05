@@ -191,6 +191,16 @@ class Room extends EventEmitter
 
 		this._closed = true;
 
+		// Clear all monitoring intervals
+		if (this._monitoringIntervals)
+		{
+			for (const interval of this._monitoringIntervals.values())
+			{
+				clearInterval(interval);
+			}
+			this._monitoringIntervals.clear();
+		}
+
 		// Close the protoo Room.
 		this._protooRoom.close();
 
