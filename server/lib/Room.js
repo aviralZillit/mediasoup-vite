@@ -409,28 +409,28 @@ class Room extends EventEmitter
 
 						logger.info(`✅ Call auto-ended for room ${this._roomId} - no active participants`);
 
-						// Notify zillit_calling via webhook so it can emit to all chat room members
+						// Notify zillit_calling via webhook for BOTH group AND private calls
 						try 
 						{
 							const zillit_calling_url = process.env.ZILLIT_CALLING_URL;
 							
-							if (zillit_calling_url && call.chat_room_id) 
+							if (zillit_calling_url) 
 							{
 								const webhookUrl = `${zillit_calling_url}/api/v2/mediasoup-call/call-ended-webhook`;
 								
 								await axios.post(webhookUrl, {
 									room_id      : this._roomId,
-									chat_room_id : call.chat_room_id,
+									chat_room_id : call.chat_room_id || null, // null for private calls, chat_room_id for group calls
 									project_id   : call.project_id.toString()
 								}, {
 									timeout : 5000 // 5 second timeout
 								});
 
-								logger.info(`✅ Notified zillit_calling about call end for room ${this._roomId}`);
+								logger.info(`✅ Notified zillit_calling about ${call.chat_room_id ? 'group' : 'private'} call end for room ${this._roomId}`);
 							}
 							else 
 							{
-								logger.warn(`⚠️  Webhook notification skipped: ${!zillit_calling_url ? 'ZILLIT_CALLING_URL not set' : 'No chat_room_id'}`);
+								logger.warn('⚠️  Webhook notification skipped: ZILLIT_CALLING_URL not set');
 							}
 						}
 						catch (webhookError) 
