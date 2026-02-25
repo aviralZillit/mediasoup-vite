@@ -1101,7 +1101,8 @@ class Room extends EventEmitter
 					.map((joinedPeer) => ({
 						id          : joinedPeer.id,
 						displayName : joinedPeer.data.displayName,
-						device      : joinedPeer.data.device
+						device      : joinedPeer.data.device,
+						raisedHand  : joinedPeer.data.raisedHand || false
 					}));
 
 				accept({ peers: peerInfos });

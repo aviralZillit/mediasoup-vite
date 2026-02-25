@@ -35,6 +35,17 @@ const peers = (state = initialState, action) => {
 			return { ...state, [newPeer.id]: newPeer };
 		}
 
+		case 'SET_PEER_RAISED_HAND': {
+			const { peerId, raisedHand } = action.payload;
+			const peer = state[peerId];
+
+			if (!peer) return state;
+
+			const newPeer = { ...peer, raisedHand };
+
+			return { ...state, [newPeer.id]: newPeer };
+		}
+
 		case 'ADD_CONSUMER': {
 			const { consumer, peerId } = action.payload;
 			const peer = state[peerId];
