@@ -1,13 +1,16 @@
+/* eslint-disable camelcase */
 const EventEmitter = require('events').EventEmitter;
 const mediasoup = require('mediasoup');
 const protoo = require('protoo-server');
 // const rtp = require('rtp.js');
 const throttle = require('@sitespeed.io/throttle');
+const axios = require('axios');
 const Logger = require('./Logger');
 const utils = require('./utils');
 const config = require('../config');
 const Bot = require('./Bot');
 
+const CallRepo = require('../repositories/MediasoupCalls');
 const logger = new Logger('Room');
 
 /**
@@ -277,22 +280,42 @@ class Room extends EventEmitter
 		peer.data.dataProducers = new Map();
 		peer.data.dataConsumers = new Map();
 
-		peer.on('request', (request, accept, reject) =>
+		peer.on('request', async (request, accept, reject) => 
 		{
 			logger.debug(
 				'protoo Peer "request" event [method:%s, peerId:%s]',
 				request.method, peer.id);
 
+			// If this is a join request, update the user's status to 'incall'
+			if (request.method === 'join') 
+			{
+				const call = await CallRepo.getCall({ filters: { room_id: this._roomId } });
+
+				if (call) 
+				{
+					const userToUpdate = call.call_users.find(
+						(user) => user.user_id.toString() === peer.id
+					);
+
+					if (userToUpdate && userToUpdate.current_status !== 'incall') 
+					{
+						userToUpdate.current_status = 'incall';
+						call.markModified('call_users');
+						await call.save();
+						logger.info(`✅ User ${peer.id} marked as 'incall' on join in room ${this._roomId}`);
+					}
+				}
+			}
+
 			this._handleProtooRequest(peer, request, accept, reject)
-				.catch((error) =>
+				.catch((error) => 
 				{
 					logger.error('request failed:%o', error);
-
 					reject(error);
 				});
 		});
 
-		peer.on('close', () =>
+		peer.on('close', async () =>
 		{
 			if (this._closed)
 				return;
@@ -316,6 +339,110 @@ class Room extends EventEmitter
 					otherPeer.notify('peerClosed', { peerId: peer.id })
 						.catch(() => {});
 				}
+			}
+			
+			const call = await CallRepo.getCall({ filters: { room_id: this._roomId } });
+
+			try 
+			{
+				if (call) 
+				{
+					const userToUpdate = call.call_users
+						.find((user) => user.user_id.toString() === peer.id);
+	
+					if (userToUpdate) 
+					{
+						// Check if user ever answered the call (was ever 'incall')
+
+						// Only mark as missed if status is still 'invited' or 'ringing' when leaving
+						const missedStatuses = [ 'invited', 'ringing' ];
+
+						if (missedStatuses.includes(userToUpdate.current_status)) 
+						{
+							userToUpdate.missed_call = true;
+							// Optionally keep as invited or set to missed
+							userToUpdate.current_status = 'invited';
+							logger.info(`✅ User ${peer.id} marked as missed call (status: ${userToUpdate.current_status}) in room ${this._roomId}`);
+						}
+
+						else 
+						{
+							// Only set to 'left' if user was actually in the call
+							const activeStatuses = [ 'incall', 'caller' ];
+
+							if (activeStatuses.includes(userToUpdate.current_status)) 
+							{
+								userToUpdate.current_status = 'left';
+								logger.info(`✅ User ${peer.id} marked as left (status: left) in room ${this._roomId}`);
+							}
+							else 
+							{
+								logger.info(`ℹ️ User ${peer.id} left with status: ${userToUpdate.current_status} (no change)`);
+							}
+						}
+						
+						call.markModified('call_users');
+						await call.save();
+					}
+
+					// 🔄 Check if all peers have left the MediaSoup room
+					const remainingPeers = this._getJoinedPeers().length;
+
+					logger.info(`🔍 Auto-end check for room ${this._roomId}: ${remainingPeers} peers remaining in MediaSoup room`);
+
+					// If no peers remain in the MediaSoup room, mark call as ended
+					if (remainingPeers === 0) 
+					{
+						call.end_time = Date.now();
+						call.current_status = 'call_ended';
+						await call.save();
+
+						logger.info(`✅ Call auto-ended for room ${this._roomId} - no active participants`);
+
+						// Notify zillit_calling via webhook so it can emit to all chat room members
+						try 
+						{
+							const zillit_calling_url = process.env.ZILLIT_CALLING_URL;
+							
+							if (zillit_calling_url && call.chat_room_id) 
+							{
+								const webhookUrl = `${zillit_calling_url}/api/v2/mediasoup-call/call-ended-webhook`;
+								
+								await axios.post(webhookUrl, {
+									room_id      : this._roomId,
+									chat_room_id : call.chat_room_id,
+									project_id   : call.project_id.toString()
+								}, {
+									timeout : 5000 // 5 second timeout
+								});
+
+								logger.info(`✅ Notified zillit_calling about call end for room ${this._roomId}`);
+							}
+							else 
+							{
+								logger.warn(`⚠️  Webhook notification skipped: ${!zillit_calling_url ? 'ZILLIT_CALLING_URL not set' : 'No chat_room_id'}`);
+							}
+						}
+						catch (webhookError) 
+						{
+							logger.error(`❌ Failed to notify zillit_calling webhook: ${webhookError.message}`);
+							// Don't throw - continue with room closure even if webhook fails
+						}
+
+						// Close the MediaSoup room since call has ended
+						this.close();
+
+						return; // Exit early since we're closing the room
+					}
+					else 
+					{
+						logger.info(`⏳ Call continues for room ${this._roomId} - ${remainingPeers} peers still present`);
+					}
+				}
+			}
+			catch (error) 
+			{
+				logger.error(`Error updating user leave status: ${error.message}`);
 			}
 
 			// Iterate and close all mediasoup Transport associated to this Peer, so all
@@ -964,7 +1091,8 @@ class Room extends EventEmitter
 					.map((joinedPeer) => ({
 						id          : joinedPeer.id,
 						displayName : joinedPeer.data.displayName,
-						device      : joinedPeer.data.device
+						device      : joinedPeer.data.device,
+						raisedHand  : joinedPeer.data.raisedHand || false
 					}));
 
 				accept({ peers: peerInfos });
@@ -1574,6 +1702,31 @@ class Room extends EventEmitter
 				const stats = await consumer.getStats();
 
 				accept(stats);
+
+				break;
+			}
+
+			case 'getConsumers':
+			{
+			// Get consumers for a specific call/room by roomId
+				const { roomId } = request.data;
+
+				// Return aggregated consumers stats for the whole room
+				const consumers = this.getConsumersStats();
+
+				const response = {
+					roomId         : this._roomId,
+					callUUID       : this._roomId,
+					totalConsumers : consumers.length,
+					consumers      : consumers
+				};
+
+				// Reply to the request with full consumer details
+				accept(response);
+
+				// Also emit a server notification (protoo notify) back to the requesting peer
+				// so clients that prefer an event can listen for 'consumersList'.
+				peer.notify('consumersList', response).catch(() => {});
 
 				break;
 			}
@@ -2580,7 +2733,7 @@ class Room extends EventEmitter
 						codecs           : producer.rtpParameters.codecs,
 						headerExtensions : producer.rtpParameters.headerExtensions.length
 					},
-					appData        : producer.appData
+					appData : producer.appData
 				});
 			}
 		}

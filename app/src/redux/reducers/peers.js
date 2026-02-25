@@ -1,7 +1,9 @@
 const initialState = {};
 
-const peers = (state = initialState, action) => {
-	switch (action.type) {
+const peers = (state = initialState, action) => 
+{
+	switch (action.type) 
+{
 		case 'SET_ROOM_STATE': {
 			const roomState = action.payload.state;
 
@@ -35,13 +37,24 @@ const peers = (state = initialState, action) => {
 			return { ...state, [newPeer.id]: newPeer };
 		}
 
+		case 'SET_PEER_RAISED_HAND': {
+			const { peerId, raisedHand } = action.payload;
+			const peer = state[peerId];
+
+			if (!peer) return state;
+
+			const newPeer = { ...peer, raisedHand };
+
+			return { ...state, [newPeer.id]: newPeer };
+		}
+
 		case 'ADD_CONSUMER': {
 			const { consumer, peerId } = action.payload;
 			const peer = state[peerId];
 
 			if (!peer) throw new Error('no Peer found for new Consumer');
 
-			const newConsumers = [...peer.consumers, consumer.id];
+			const newConsumers = [ ...peer.consumers, consumer.id ];
 			const newPeer = { ...peer, consumers: newConsumers };
 
 			return { ...state, [newPeer.id]: newPeer };
@@ -77,7 +90,7 @@ const peers = (state = initialState, action) => {
 
 			if (!peer) throw new Error('no Peer found for new DataConsumer');
 
-			const newDataConsumers = [...peer.dataConsumers, dataConsumer.id];
+			const newDataConsumers = [ ...peer.dataConsumers, dataConsumer.id ];
 			const newPeer = { ...peer, dataConsumers: newDataConsumers };
 
 			return { ...state, [newPeer.id]: newPeer };

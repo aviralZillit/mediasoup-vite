@@ -773,6 +773,22 @@ export default class RoomClient
 					break;
 				}
 
+				case 'peerRaisedHand': {
+					const { peerId } = notification.data;
+
+					store.dispatch(stateActions.setPeerRaisedHand(peerId, true));
+
+					break;
+				}
+
+				case 'peerLoweredHand': {
+					const { peerId } = notification.data;
+
+					store.dispatch(stateActions.setPeerRaisedHand(peerId, false));
+
+					break;
+				}
+
 				default: {
 					logger.error(
 						'unknown protoo notification.method "%s"',

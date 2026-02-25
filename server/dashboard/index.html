@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MediaSoup Server Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            color: #2c3e50;
+            font-size: 2.8em;
+            margin-bottom: 10px;
+        }
+
+        .header .subtitle {
+            color: #7f8c8d;
+            font-size: 1.2em;
+        }
+
+        .nav-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        .nav-card {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            text-decoration: none;
+            color: inherit;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+
+        .nav-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+            border-color: #3498db;
+        }
+
+        .nav-card .icon {
+            font-size: 3em;
+            margin-bottom: 15px;
+            display: block;
+        }
+
+        .nav-card h3 {
+            color: #2c3e50;
+            font-size: 1.4em;
+            margin-bottom: 10px;
+        }
+
+        .nav-card p {
+            color: #7f8c8d;
+            line-height: 1.5;
+            margin-bottom: 15px;
+        }
+
+        .nav-card .route {
+            background: #ecf0f1;
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            color: #2c3e50;
+        }
+
+        .section-title {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 30px 0 20px 0;
+            text-align: center;
+        }
+
+        .section-title h2 {
+            color: #2c3e50;
+            font-size: 1.8em;
+        }
+
+        .api-section {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .api-list {
+            list-style: none;
+        }
+
+        .api-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #ecf0f1;
+        }
+
+        .api-item:last-child {
+            border-bottom: none;
+        }
+
+        .api-method {
+            background: #3498db;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: bold;
+            min-width: 50px;
+            text-align: center;
+        }
+
+        .api-method.post {
+            background: #27ae60;
+        }
+
+        .api-path {
+            flex: 1;
+            margin: 0 15px;
+            font-family: 'Courier New', monospace;
+            color: #2c3e50;
+        }
+
+        .api-description {
+            color: #7f8c8d;
+            font-size: 0.9em;
+            max-width: 300px;
+        }
+
+        .server-status {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-online {
+            background: #27ae60;
+        }
+
+        .status-offline {
+            background: #e74c3c;
+        }
+
+        @media (max-width: 768px) {
+            .nav-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .api-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+            
+            .api-description {
+                max-width: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 MediaSoup Server Dashboard</h1>
+            <p class="subtitle">Comprehensive monitoring and analytics for your MediaSoup WebRTC server</p>
+        </div>
+
+        <div class="server-status" id="serverStatus">
+            <h3 style="margin-bottom: 15px; color: #2c3e50;">🔍 Server Status</h3>
+            <div class="status-item">
+                <span><span class="status-indicator status-online"></span>Server</span>
+                <span id="serverHealth">Checking...</span>
+            </div>
+            <div class="status-item">
+                <span>Uptime</span>
+                <span id="serverUptime">Loading...</span>
+            </div>
+            <div class="status-item">
+                <span>Active Rooms</span>
+                <span id="activeRooms">Loading...</span>
+            </div>
+        </div>
+
+        <!-- Main Dashboard Links -->
+        <div class="nav-grid">
+            <a href="/dashboard/calls" class="nav-card">
+                <span class="icon">📞</span>
+                <h3>Call Monitoring Dashboard</h3>
+                <p>Real-time view of all ongoing calls, participants, and call quality metrics</p>
+                <div class="route">/dashboard/calls</div>
+            </a>
+
+            <a href="/analytics/server" class="nav-card" target="_blank">
+                <span class="icon">📊</span>
+                <h3>Server Analytics</h3>
+                <p>Server performance metrics, memory usage, and system statistics</p>
+                <div class="route">/analytics/server</div>
+            </a>
+
+            <a href="/dashboard/calls/overview" class="nav-card" target="_blank">
+                <span class="icon">🔍</span>
+                <h3>Calls Overview API</h3>
+                <p>JSON API for active calls, live rooms, and server statistics</p>
+                <div class="route">/dashboard/calls/overview</div>
+            </a>
+
+            <a href="/dashboard/calls/history" class="nav-card" target="_blank">
+                <span class="icon">📝</span>
+                <h3>Call History API</h3>
+                <p>Detailed call logs with outcomes, durations, and participant info</p>
+                <div class="route">/dashboard/calls/history</div>
+            </a>
+
+            <a href="/dashboard/rooms-inspector" class="nav-card">
+                <span class="icon">🏠</span>
+                <h3>Live Rooms Inspector</h3>
+                <p>Real-time room inspection with peers, producers, and consumers</p>
+                <div class="route">/dashboard/rooms-inspector</div>
+            </a>
+
+            <a href="/dashboard/rooms" class="nav-card" target="_blank">
+                <span class="icon">🔧</span>
+                <h3>Rooms API</h3>  
+                <p>JSON API for listing and inspecting all active MediaSoup rooms</p>
+                <div class="route">/dashboard/rooms</div>
+            </a>
+        </div>
+
+        <!-- API Documentation -->
+        <div class="section-title">
+            <h2>🔧 Available API Endpoints</h2>
+        </div>
+
+        <div class="api-section">
+            <h3 style="margin-bottom: 20px; color: #2c3e50;">📞 Call Monitoring APIs</h3>
+            <ul class="api-list">
+                <li class="api-item">
+                    <span class="api-method">GET</span>
+                    <span class="api-path">/dashboard/calls</span>
+                    <span class="api-description">Main call monitoring dashboard (HTML)</span>
+                </li>
+                <li class="api-item">
+                    <span class="api-method">GET</span>
+                    <span class="api-path">/dashboard/calls/overview</span>
+                    <span class="api-description">Active calls and live rooms overview</span>
+                </li>
+                <li class="api-item">
+                    <span class="api-method">GET</span>
+                    <span class="api-path">/dashboard/calls/history</span>
+                    <span class="api-description">Call history with filtering (?limit=20&status=ended)</span>
+                </li>
+                <li class="api-item">
+                    <span class="api-method">GET</span>
+                    <span class="api-path">/dashboard/rooms</span>
+                    <span class="api-description">List all active rooms with basic stats</span>
+                </li>
+                <li class="api-item">
+                    <span class="api-method">GET</span>
+                    <span class="api-path">/dashboard/rooms/:roomId</span>
+                    <span class="api-description">Detailed room inspection with peers and media</span>
+                </li>
+            </ul>
+        </div>
+
+        <div class="api-section">
+            <h3 style="margin-bottom: 20px; color: #2c3e50;">📊 Analytics APIs</h3>
+            <ul class="api-list">
+                <li class="api-item">
+                    <span class="api-method">GET</span>
+                    <span class="api-path">/analytics/server</span>
+                    <span class="api-description">Server statistics and performance metrics</span>
+                </li>
+                <li class="api-item">
+                    <span class="api-method">GET</span>
+                    <span class="api-path">/analytics/rooms/:roomId/producers</span>
+                    <span class="api-description">Producer statistics for specific room</span>
+                </li>
+                <li class="api-item">
+                    <span class="api-method">GET</span>
+                    <span class="api-path">/analytics/rooms/:roomId/consumers</span>
+                    <span class="api-description">Consumer statistics for specific room</span>
+                </li>
+            </ul>
+        </div>
+
+        <div class="api-section">
+            <h3 style="margin-bottom: 20px; color: #2c3e50;">🏠 Room Management APIs</h3>
+            <ul class="api-list">
+                <li class="api-item">
+                    <span class="api-method">GET</span>
+                    <span class="api-path">/rooms/:roomId</span>
+                    <span class="api-description">Get room RTP capabilities</span>
+                </li>
+                <li class="api-item">
+                    <span class="api-method post">POST</span>
+                    <span class="api-path">/rooms/:roomId/webrtc-transports</span>
+                    <span class="api-description">Create WebRTC transport</span>
+                </li>
+                <li class="api-item">
+                    <span class="api-method post">POST</span>
+                    <span class="api-path">/rooms/:roomId/join</span>
+                    <span class="api-description">Join room as peer</span>
+                </li>
+                <li class="api-item">
+                    <span class="api-method post">POST</span>
+                    <span class="api-path">/rooms/:roomId/leave</span>
+                    <span class="api-description">Leave room</span>
+                </li>
+            </ul>
+        </div>
+
+        <div class="api-section">
+            <h3 style="margin-bottom: 20px; color: #2c3e50;">🎥 Media Management APIs</h3>
+            <ul class="api-list">
+                <li class="api-item">
+                    <span class="api-method post">POST</span>
+                    <span class="api-path">/rooms/:roomId/produce</span>
+                    <span class="api-description">Start producing media (audio/video)</span>
+                </li>
+                <li class="api-item">
+                    <span class="api-method post">POST</span>
+                    <span class="api-path">/rooms/:roomId/consume</span>
+                    <span class="api-description">Start consuming media from peers</span>
+                </li>
+                <li class="api-item">
+                    <span class="api-method post">POST</span>
+                    <span class="api-path">/rooms/:roomId/pause-producer</span>
+                    <span class="api-description">Pause media producer</span>
+                </li>
+                <li class="api-item">
+                    <span class="api-method post">POST</span>
+                    <span class="api-path">/rooms/:roomId/resume-producer</span>
+                    <span class="api-description">Resume media producer</span>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <style>
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            margin-top: 30px;
+        }
+    </style>
+
+    <div class="footer">
+        <p>MediaSoup Server Dashboard - Real-time WebRTC monitoring and management</p>
+    </div>
+
+    <script>
+        // Load server status
+        async function loadServerStatus() {
+            try {
+                const response = await fetch('/analytics/server');
+                const data = await response.json();
+                
+                document.getElementById('serverHealth').textContent = 'Online ✅';
+                document.getElementById('serverUptime').textContent = formatDuration(data.uptime);
+                document.getElementById('activeRooms').textContent = data.totalRooms;
+            } catch (error) {
+                document.getElementById('serverHealth').textContent = 'Offline ❌';
+                document.getElementById('serverUptime').textContent = 'Unknown';
+                document.getElementById('activeRooms').textContent = 'Error';
+            }
+        }
+
+        function formatDuration(ms) {
+            const seconds = Math.floor(ms / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const hours = Math.floor(minutes / 60);
+            const days = Math.floor(hours / 24);
+
+            if (days > 0) return `${days}d ${hours % 24}h ${minutes % 60}m`;
+            if (hours > 0) return `${hours}h ${minutes % 60}m`;
+            if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+            return `${seconds}s`;
+        }
+
+        // Load status on page load
+        document.addEventListener('DOMContentLoaded', loadServerStatus);
+
+        // Refresh status every 30 seconds
+        setInterval(loadServerStatus, 30000);
+    </script>
+</body>
+</html>

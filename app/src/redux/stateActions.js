@@ -230,6 +230,14 @@ export const setPeerDisplayName = (displayName, peerId) =>
 	};
 };
 
+export const setPeerRaisedHand = (peerId, raisedHand) => 
+{
+	return {
+		type    : 'SET_PEER_RAISED_HAND',
+		payload : { peerId, raisedHand }
+	};
+};
+
 export const addConsumer = (consumer, peerId) => 
 {
 	return {

@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
-process.title = 'mediasoup-demo-server';
+// Load environment variables first before anything else
+require('dotenv').config();
+
+process.title = 'mediasoup-server';
 process.env.DEBUG = process.env.DEBUG || '*INFO* *WARN* *ERROR*';
 
 const config = require('./config');
@@ -8,8 +11,11 @@ const config = require('./config');
 /* eslint-disable no-console */
 console.log('process.env.DEBUG:', process.env.DEBUG);
 console.log('config.js:\n%s', JSON.stringify(config, null, '  '));
+
+console.log('Loaded environment variables:\n%s', JSON.stringify(process.env, null, '  '));
 /* eslint-enable no-console */
 
+const mongoose = require('mongoose');
 const fs = require('fs');
 const https = require('https');
 const http = require('http');
@@ -58,10 +64,36 @@ const mediasoupWorkers = [];
 // @type {Number}
 let nextMediasoupWorkerIdx = 0;
 
+// MongoDB Connection Function
+async function connectDB() 
+{
+	try 
+	{
+		// Configure mongoose to suppress deprecation warning
+		mongoose.set('strictQuery', false);
+		
+		const mongoURI = process.env.MONGO_URI || '';
+
+		await mongoose.connect(mongoURI);
+
+		// eslint-disable-next-line no-console
+		console.log('✅ MongoDB connected successfully');
+	}
+	catch (error) 
+	{
+		// eslint-disable-next-line no-console
+		console.error('❌ MongoDB connection error:', error);
+		process.exit(1); // Exit if DB connection fails
+	}
+}
+
 run();
 
 async function run()
 {
+	// Connect to MongoDB first
+	await connectDB();
+
 	// Open the interactive server.
 	await interactiveServer();
 
@@ -751,3 +783,30 @@ async function getOrCreateRoom({ roomId, consumerReplicas })
 
 	return room;
 }
+
+// Graceful shutdown handling
+async function gracefulShutdown() 
+{
+	try 
+	{
+		logger.info('Shutting down gracefully...');
+		
+		// Close MongoDB connection
+		if (mongoose.connection.readyState === 1)
+		{
+			await mongoose.connection.close();
+			logger.info('MongoDB connection closed');
+		}
+		
+		process.exit(0);
+	}
+	catch (error) 
+	{
+		logger.error('Error during graceful shutdown:', error);
+		process.exit(1);
+	}
+}
+
+// Handle process termination
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
