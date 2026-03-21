@@ -26,6 +26,7 @@
     "mongoose": "^6.12.0",
     "pidusage": "^2.0.21",
     "protoo-server": "^4.0.5",
+    "puppeteer-core": "^24.40.0",
     "rtp.js": "^0.11.4",
     "socket.io": "^4.7.2"
   },

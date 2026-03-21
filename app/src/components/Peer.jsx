@@ -6,7 +6,7 @@ import { withRoomContext } from '../RoomContext';
 import * as stateActions from '../redux/stateActions';
 import PeerView from './PeerView';
 
-const Peer = props => {
+const Peer = React.memo(props => {
 	const {
 		roomClient,
 		peer,
@@ -86,7 +86,34 @@ const Peer = props => {
 			/>
 		</div>
 	);
-};
+}, (prevProps, nextProps) => {
+	// Only re-render when the actual video/audio track changes,
+	// or when paused state changes. NOT on score updates.
+	// Score updates cause new consumer objects but same tracks —
+	// re-rendering causes video flicker.
+	const prevAudio = prevProps.audioConsumer;
+	const nextAudio = nextProps.audioConsumer;
+	const prevVideo = prevProps.videoConsumer;
+	const nextVideo = nextProps.videoConsumer;
+
+	return (
+		prevProps.peer === nextProps.peer &&
+		prevProps.audioMuted === nextProps.audioMuted &&
+		// Audio consumer: track, paused state
+		(prevAudio?.track) === (nextAudio?.track) &&
+		(prevAudio?.locallyPaused) === (nextAudio?.locallyPaused) &&
+		(prevAudio?.remotelyPaused) === (nextAudio?.remotelyPaused) &&
+		// Video consumer: track, paused state, layers
+		(prevVideo?.track) === (nextVideo?.track) &&
+		(prevVideo?.locallyPaused) === (nextVideo?.locallyPaused) &&
+		(prevVideo?.remotelyPaused) === (nextVideo?.remotelyPaused) &&
+		(prevVideo?.currentSpatialLayer) === (nextVideo?.currentSpatialLayer) &&
+		(prevVideo?.type) === (nextVideo?.type) &&
+		// Consumer presence (added/removed)
+		Boolean(prevAudio) === Boolean(nextAudio) &&
+		Boolean(prevVideo) === Boolean(nextVideo)
+	);
+});
 
 Peer.propTypes = {
 	roomClient: PropTypes.any.isRequired,
@@ -105,11 +132,16 @@ const mapStateToProps = (state, { id }) => {
 		consumerId => state.consumers[consumerId]
 	);
 	const audioConsumer = consumersArray.find(
-		consumer => consumer.track.kind === 'audio'
+		consumer => consumer && consumer.track && consumer.track.kind === 'audio'
 	);
-	const videoConsumer = consumersArray.find(
-		consumer => consumer.track.kind === 'video'
+	// Pick webcam (non-share) as primary video. Fall back to share if no webcam.
+	const webcamConsumer = consumersArray.find(
+		consumer => consumer && consumer.track && consumer.track.kind === 'video' && !consumer.appData?.share
 	);
+	const shareConsumer = consumersArray.find(
+		consumer => consumer && consumer.track && consumer.track.kind === 'video' && consumer.appData?.share
+	);
+	const videoConsumer = webcamConsumer || shareConsumer;
 
 	return {
 		peer,

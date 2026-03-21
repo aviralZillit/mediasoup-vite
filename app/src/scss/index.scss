@@ -9,15 +9,11 @@
 html {
 	height: 100%;
 	box-sizing: border-box;
-	// background-image: url('/images/body-bg-2.jpg');
-	// background-attachment: fixed;
-	// background-position: center;
-	// background-size: cover;
-	// background-repeat: no-repeat;
-	background: #141e30;
-	background: linear-gradient(to top, #243b55, #141e30);
-	font-family: 'Roboto';
-	font-weight: 300;
+	background: $bg-primary;
+	font-family: 'Inter', 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+	font-weight: 400;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
 
 	@include desktop() {
 		font-size: 16px;
@@ -40,6 +36,7 @@ body {
 	@import './components/Room';
 	@import './components/Me';
 	@import './components/ChatInput';
+	@import './components/ChatPanel';
 	@import './components/Peers';
 	@import './components/Peer';
 	@import './components/PeerView';

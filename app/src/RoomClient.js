@@ -6,6 +6,7 @@ import * as cookiesManager from './cookiesManager';
 import * as requestActions from './redux/requestActions';
 import * as stateActions from './redux/stateActions';
 import * as e2e from './e2e';
+import { playJoinSound, playLeaveSound, playMessageSound } from './sounds';
 
 const VIDEO_CONSTRAINS = {
 	qvga : { width: { ideal: 320 }, height: { ideal: 240 } },
@@ -381,7 +382,8 @@ export default class RoomClient
 									priority               : 1,
 									codec                  :
 										consumer.rtpParameters.codecs[0].mimeType.split('/')[1],
-									track : consumer.track
+									track   : consumer.track,
+									appData : appData
 								},
 								peerId
 							)
@@ -548,13 +550,28 @@ export default class RoomClient
 										break;
 									}
 
+									// Store in chat history.
 									store.dispatch(
-										requestActions.notify({
-											title   : `${sendingPeer.displayName} says:`,
-											text    : message,
-											timeout : 5000
+										stateActions.addChatMessage({
+											sender    : sendingPeer.displayName,
+											text      : message,
+											timestamp : Date.now(),
+											isMe      : false,
 										})
 									);
+
+									// Toast notification (only if chat is closed).
+									if (!store.getState().room.chatOpen) {
+										store.dispatch(
+											requestActions.notify({
+												title   : `${sendingPeer.displayName} says:`,
+												text    : message,
+												timeout : 5000
+											})
+										);
+									}
+
+									playMessageSound();
 
 									break;
 								}
@@ -649,6 +666,8 @@ export default class RoomClient
 						})
 					);
 
+					playJoinSound();
+
 					break;
 				}
 
@@ -656,6 +675,8 @@ export default class RoomClient
 					const { peerId } = notification.data;
 
 					store.dispatch(stateActions.removePeer(peerId));
+
+					playLeaveSound();
 
 					break;
 				}
@@ -785,6 +806,89 @@ export default class RoomClient
 					const { peerId } = notification.data;
 
 					store.dispatch(stateActions.setPeerRaisedHand(peerId, false));
+
+					break;
+				}
+
+				case 'recordingStarted': {
+					const { displayName } = notification.data;
+
+					store.dispatch(stateActions.setRecordingState(true));
+
+					store.dispatch(
+						requestActions.notify({
+							type : 'info',
+							text : `${displayName || 'A peer'} started recording`
+						})
+					);
+
+					break;
+				}
+
+				case 'recordingStopped': {
+					store.dispatch(stateActions.setRecordingState(false));
+
+					const { composing } = notification.data;
+
+					if (composing)
+					{
+						store.dispatch(stateActions.setRecordingComposing(true));
+
+						store.dispatch(
+							requestActions.notify({
+								text : 'Recording stopped — processing...'
+							})
+						);
+					}
+					else
+					{
+						store.dispatch(
+							requestActions.notify({
+								text : 'Recording stopped'
+							})
+						);
+					}
+
+					break;
+				}
+
+				case 'recordingReady': {
+					store.dispatch(stateActions.setRecordingComposing(false));
+
+					if (notification.data.outputFile)
+					{
+						store.dispatch(stateActions.setRecordingReady(
+							notification.data.outputFile));
+
+						store.dispatch(
+							requestActions.notify({
+								type : 'info',
+								text : 'Recording ready!'
+							})
+						);
+					}
+					else
+					{
+						store.dispatch(
+							requestActions.notify({
+								type : 'error',
+								text : notification.data.error ||
+									'Recording failed — too short or no media'
+							})
+						);
+					}
+
+					break;
+				}
+
+				case 'recordingInitiatorChanged': {
+					const { displayName } = notification.data;
+
+					store.dispatch(
+						requestActions.notify({
+							text : `Recording ownership transferred to ${displayName}`
+						})
+					);
 
 					break;
 				}
@@ -1335,7 +1439,7 @@ export default class RoomClient
 		logger.debug('enableShare()');
 
 		if (this._shareProducer) return;
-		else if (this._webcamProducer) await this.disableWebcam();
+		// Don't disable webcam — allow both webcam + screen share simultaneously.
 
 		if (!this._mediasoupDevice.canProduce('video')) 
 {
@@ -1358,9 +1462,9 @@ export default class RoomClient
 					displaySurface : 'monitor',
 					logicalSurface : true,
 					cursor         : true,
-					width          : { max: 1920 },
-					height         : { max: 1080 },
-					frameRate      : { max: 30 }
+					width          : { ideal: 1920, max: 3840 },
+					height         : { ideal: 1080, max: 2160 },
+					frameRate      : { ideal: 15, max: 30 }
 				}
 			});
 
@@ -1374,101 +1478,60 @@ export default class RoomClient
 
 			track = stream.getVideoTracks()[0];
 
+			// Set content hint for sharp text/code/UI rendering.
+			if ('contentHint' in track) {
+				track.contentHint = 'text';
+			}
+
 			let encodings;
 			let codec;
+			// High start bitrate for immediate quality.
 			const codecOptions = {
-				videoGoogleStartBitrate : 1000
+				videoGoogleStartBitrate : 2000
 			};
 
-			if (this._forceVP8) 
+			if (this._forceVP8)
 {
 				codec = this._mediasoupDevice.rtpCapabilities.codecs.find(
 					(c) => c.mimeType.toLowerCase() === 'video/vp8'
 				);
 
-				if (!codec) 
+				if (!codec)
 {
 					throw new Error('desired VP8 codec+configuration is not supported');
 				}
 			}
- else if (this._forceH264) 
+ else if (this._forceH264)
 {
 				codec = this._mediasoupDevice.rtpCapabilities.codecs.find(
 					(c) => c.mimeType.toLowerCase() === 'video/h264'
 				);
 
-				if (!codec) 
+				if (!codec)
 {
 					throw new Error('desired H264 codec+configuration is not supported');
 				}
 			}
- else if (this._forceVP9) 
+ else if (this._forceVP9)
 {
 				codec = this._mediasoupDevice.rtpCapabilities.codecs.find(
 					(c) => c.mimeType.toLowerCase() === 'video/vp9'
 				);
 
-				if (!codec) 
+				if (!codec)
 {
 					throw new Error('desired VP9 codec+configuration is not supported');
 				}
 			}
 
-			if (this._enableSharingLayers) 
-{
-				// If VP9 is the only available video codec then use SVC.
-				const firstVideoCodec =
-					this._mediasoupDevice.rtpCapabilities.codecs.find(
-						(c) => c.kind === 'video'
-					);
-
-				// VP9 with SVC.
-				if (
-					(this._forceVP9 && codec) ||
-					firstVideoCodec.mimeType.toLowerCase() === 'video/vp9'
-				) 
-{
-					encodings = [
-						{
-							maxBitrate      : 5000000,
-							scalabilityMode : this._sharingScalabilityMode || 'L3T3',
-							dtx             : true
-						}
-					];
+			// NO simulcast for screen share — single high-quality stream.
+			// Simulcast degrades quality as receivers may get lower layers.
+			// Screen content (text, code, UI) needs maximum sharpness.
+			encodings = [
+				{
+					maxBitrate : 8000000  // 8 Mbps for high quality screen share
 				}
-				// VP8 or H264 with simulcast.
-				else 
-{
-					encodings = [
-						{
-							scaleResolutionDownBy : 1,
-							maxBitrate            : 5000000,
-							scalabilityMode       : this._sharingScalabilityMode || 'L1T3',
-							dtx                   : true
-						}
-					];
-
-					if (this._numSimulcastStreams > 1) 
-{
-						encodings.unshift({
-							scaleResolutionDownBy : 2,
-							maxBitrate            : 1000000,
-							scalabilityMode       : this._sharingScalabilityMode || 'L1T3',
-							dtx                   : true
-						});
-					}
-
-					if (this._numSimulcastStreams > 2) 
-{
-						encodings.unshift({
-							scaleResolutionDownBy : 4,
-							maxBitrate            : 500000,
-							scalabilityMode       : this._sharingScalabilityMode || 'L1T3',
-							dtx                   : true
-						});
-					}
-				}
-			}
+			];
 
 			this._shareProducer = await this._sendTransport.produce({
 				track,
@@ -1978,11 +2041,23 @@ export default class RoomClient
 			return;
 		}
 
-		try 
+		try
 {
 			this._chatDataProducer.send(text);
+
+			// Store in local chat history.
+			const { me } = store.getState();
+
+			store.dispatch(
+				stateActions.addChatMessage({
+					sender    : me.displayName || 'You',
+					text,
+					timestamp : Date.now(),
+					isMe      : true,
+				})
+			);
 		}
- catch (error) 
+ catch (error)
 {
 			logger.error('chat DataProducer.send() failed:%o', error);
 
@@ -2482,7 +2557,7 @@ export default class RoomClient
 
 			// Join now into the room.
 			// NOTE: Don't send our RTP capabilities if we don't want to consume.
-			const { peers } = await this._protoo.request('join', {
+			const { peers, recordingActive } = await this._protoo.request('join', {
 				displayName     : this._displayName,
 				device          : this._device,
 				rtpCapabilities : this._consume
@@ -2495,6 +2570,12 @@ export default class RoomClient
 			});
 
 			store.dispatch(stateActions.setRoomState('connected'));
+
+			// Sync recording state from server.
+			if (recordingActive)
+			{
+				store.dispatch(stateActions.setRecordingState(true));
+			}
 
 			// Clean all the existing notifcations.
 			store.dispatch(stateActions.removeAllNotifications());
@@ -2667,7 +2748,73 @@ export default class RoomClient
 		}
 	}
 
-	async _getExternalVideoStream() 
+	async startRecording()
+{
+		logger.debug('startRecording()');
+
+		// Optimistic UI update — button turns red instantly.
+		store.dispatch(stateActions.setRecordingState(true));
+		store.dispatch(
+			requestActions.notify({
+				text : 'Recording started'
+			})
+		);
+
+		try
+		{
+			await this._protoo.request('startRecording');
+		}
+		catch (error)
+		{
+			logger.error('startRecording() | failed:%o', error);
+
+			// Revert on failure.
+			store.dispatch(stateActions.setRecordingState(false));
+
+			store.dispatch(
+				requestActions.notify({
+					type : 'error',
+					text : `Failed to start recording: ${error}`
+				})
+			);
+		}
+	}
+
+	async stopRecording()
+{
+		logger.debug('stopRecording()');
+
+		// Optimistic UI update — user sees "stopped" instantly.
+		store.dispatch(stateActions.setRecordingState(false));
+		store.dispatch(stateActions.setRecordingComposing(true));
+		store.dispatch(
+			requestActions.notify({
+				text : 'Recording stopped — processing...'
+			})
+		);
+
+		try
+		{
+			await this._protoo.request('stopRecording');
+		}
+		catch (error)
+		{
+			logger.error('stopRecording() | failed:%o', error);
+
+			// Revert on failure.
+			store.dispatch(stateActions.setRecordingState(true));
+			store.dispatch(stateActions.setRecordingComposing(false));
+
+			store.dispatch(
+				requestActions.notify({
+					type : 'error',
+					text : `Failed to stop recording: ${error}`
+				})
+			);
+		}
+	}
+
+	async _getExternalVideoStream()
 {
 		if (this._externalVideoStream) return this._externalVideoStream;
 

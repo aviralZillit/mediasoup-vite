@@ -2,8 +2,6 @@ import React from 'react';
 import { connect } from 'react-redux';
 import PropTypes from 'prop-types';
 import ReactTooltip from 'react-tooltip';
-import classnames from 'classnames';
-import * as cookiesManager from '../cookiesManager';
 import * as appPropTypes from './appPropTypes';
 import { withRoomContext } from '../RoomContext';
 import * as stateActions from '../redux/stateActions';
@@ -19,8 +17,6 @@ class Me extends React.Component {
 
 	render() {
 		const {
-			roomClient,
-			connected,
 			me,
 			audioProducer,
 			videoProducer,
@@ -28,96 +24,23 @@ class Me extends React.Component {
 			onSetStatsPeerId,
 		} = this.props;
 
-		let micState;
-
-		if (!me.canSendMic) micState = 'unsupported';
-		else if (!audioProducer) micState = 'unsupported';
-		else if (!audioProducer.paused) micState = 'on';
-		else micState = 'off';
-
-		let webcamState;
-
-		if (!me.canSendWebcam) webcamState = 'unsupported';
-		else if (videoProducer && videoProducer.type !== 'share')
-			webcamState = 'on';
-		else webcamState = 'off';
-
-		let changeWebcamState;
-
-		if (
-			Boolean(videoProducer) &&
-			videoProducer.type !== 'share' &&
-			me.canChangeWebcam
-		)
-			changeWebcamState = 'on';
-		else changeWebcamState = 'unsupported';
-
-		let shareState;
-
-		if (Boolean(videoProducer) && videoProducer.type === 'share')
-			shareState = 'on';
-		else shareState = 'off';
-
 		const videoVisible = Boolean(videoProducer) && !videoProducer.paused;
 
-		let tip;
+		let micState;
 
-		if (!me.displayNameSet) tip = 'Click on your name to change it';
+		if (!audioProducer) micState = 'off';
+		else if (!audioProducer.paused) micState = 'on';
+		else micState = 'off';
 
 		return (
 			<div
 				data-component="Me"
 				ref={node => (this._rootNode = node)}
-				data-tip={tip}
-				data-tip-disable={!tip}
 			>
-				{connected && (
-					<div className="controls">
-						<div
-							className={classnames('button', 'mic', micState)}
-							onClick={() => {
-								micState === 'on'
-									? roomClient.muteMic()
-									: roomClient.unmuteMic();
-							}}
-						/>
-
-						<div
-							className={classnames('button', 'webcam', webcamState, {
-								disabled: me.webcamInProgress || me.shareInProgress,
-							})}
-							onClick={() => {
-								if (webcamState === 'on') {
-									cookiesManager.setDevices({ webcamEnabled: false });
-									roomClient.disableWebcam();
-								} else {
-									cookiesManager.setDevices({ webcamEnabled: true });
-									roomClient.enableWebcam();
-								}
-							}}
-						/>
-
-						<div
-							className={classnames(
-								'button',
-								'change-webcam',
-								changeWebcamState,
-								{
-									disabled: me.webcamInProgress || me.shareInProgress,
-								}
-							)}
-							onClick={() => roomClient.changeWebcam()}
-						/>
-
-						<div
-							className={classnames('button', 'share', shareState, {
-								disabled: me.shareInProgress || me.webcamInProgress,
-							})}
-							onClick={() => {
-								if (shareState === 'on') roomClient.disableShare();
-								else roomClient.enableShare();
-							}}
-						/>
+				{/* Mic off indicator */}
+				{micState === 'off' && (
+					<div className="mic-off-badge">
+						<div className="icon" />
 					</div>
 				)}
 
@@ -141,10 +64,10 @@ class Me extends React.Component {
 					videoScore={videoProducer ? videoProducer.score : null}
 					faceDetection={faceDetection}
 					onChangeDisplayName={displayName => {
-						roomClient.changeDisplayName(displayName);
+						this.props.roomClient.changeDisplayName(displayName);
 					}}
 					onChangeMaxSendingSpatialLayer={spatialLayer => {
-						roomClient.setMaxSendingSpatialLayer(spatialLayer);
+						this.props.roomClient.setMaxSendingSpatialLayer(spatialLayer);
 					}}
 					onStatsClick={onSetStatsPeerId}
 				/>
@@ -162,27 +85,15 @@ class Me extends React.Component {
 
 	componentDidMount() {
 		this._mounted = true;
-
-		setTimeout(() => {
-			if (!this._mounted || this.props.me.displayNameSet) return;
-
-			ReactTooltip.show(this._rootNode);
-		}, 4000);
 	}
 
 	componentWillUnmount() {
 		this._mounted = false;
 	}
-
-	componentDidUpdate(prevProps) {
-		if (!prevProps.me.displayNameSet && this.props.me.displayNameSet)
-			ReactTooltip.hide(this._rootNode);
-	}
 }
 
 Me.propTypes = {
 	roomClient: PropTypes.any.isRequired,
-	connected: PropTypes.bool.isRequired,
 	me: appPropTypes.Me.isRequired,
 	audioProducer: appPropTypes.Producer,
 	videoProducer: appPropTypes.Producer,
@@ -195,15 +106,19 @@ const mapStateToProps = state => {
 	const audioProducer = producersArray.find(
 		producer => producer.track.kind === 'audio'
 	);
-	const videoProducer = producersArray.find(
-		producer => producer.track.kind === 'video'
+	// Webcam (non-share) as primary video.
+	const webcamProducer = producersArray.find(
+		producer => producer.track.kind === 'video' && producer.type !== 'share'
 	);
+	const shareProducer = producersArray.find(
+		producer => producer.track.kind === 'video' && producer.type === 'share'
+	);
+	const videoProducer = webcamProducer || shareProducer;
 
 	return {
-		connected: state.room.state === 'connected',
 		me: state.me,
-		audioProducer: audioProducer,
-		videoProducer: videoProducer,
+		audioProducer,
+		videoProducer,
 		faceDetection: state.room.faceDetection,
 	};
 };

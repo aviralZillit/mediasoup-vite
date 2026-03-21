@@ -64,7 +64,8 @@ async function run()
 	logger.debug('run() [environment:%s]', process.env.NODE_ENV);
 
 	const urlParser = new UrlParse(window.location.href, true);
-	const peerId = randomString({ length: 8 }).toLowerCase();
+	const peerId = urlParser.query.peerId || randomString({ length: 8 }).toLowerCase();
+	const isRecorderBot = urlParser.query.recorder === 'true' || peerId.startsWith('recorder-');
 	let roomId = urlParser.query.roomId;
 	let displayName =
 		urlParser.query.displayName || (cookiesManager.getUser() || {}).displayName;
@@ -179,6 +180,9 @@ async function run()
 	store.dispatch(
 		stateActions.setMe({ peerId, displayName, displayNameSet, device })
 	);
+
+	// Store recorder mode flag globally so Room.jsx can access it.
+	window.IS_RECORDER_BOT = isRecorderBot;
 
 	roomClient = new RoomClient({
 		roomId,
