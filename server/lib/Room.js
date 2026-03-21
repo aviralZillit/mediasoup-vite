@@ -451,14 +451,30 @@ class Room extends EventEmitter
 
 						try
 						{
-							await this._recording.stopCapture();
+							if (typeof this._recording.stop === 'function')
+							{
+								// RecorderBot — stop() produces the final MP4.
+								const outputFile = await this._recording.stop();
 
-							this._runComposition(this._recording);
+								if (outputFile)
+								{
+									logger.info(
+										'Bot recording saved [output:%s]', outputFile);
+								}
+							}
+							else if (typeof this._recording.stopCapture === 'function')
+							{
+								// Old Recording — stopCapture + compose.
+								await this._recording.stopCapture();
+								this._runComposition(this._recording);
+							}
 						}
 						catch (error)
 						{
 							logger.error('Failed to stop recording on peer leave: %o', error);
-							this._recording.close();
+
+							if (typeof this._recording.close === 'function')
+								this._recording.close();
 						}
 
 						this._recording = null;
@@ -2204,6 +2220,15 @@ class Room extends EventEmitter
 				catch (error)
 				{
 					logger.error('startRecording() failed: %o', error);
+
+					// Reset so the room can retry recording later.
+					if (this._recording)
+					{
+						if (typeof this._recording.close === 'function')
+							this._recording.close();
+
+						this._recording = null;
+					}
 
 					reject(500, error.toString());
 				}
