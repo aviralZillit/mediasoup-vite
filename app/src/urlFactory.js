@@ -12,8 +12,8 @@ import qs from 'qs';
 
 const BACKENDS = {
 	local : { protocol: 'wss', hostname: 'localhost',                  port: 4443 },
-	dev   : { protocol: 'wss', hostname: 'mediasoup-dev.zillit.com',  port: null },
-	qa    : { protocol: 'wss', hostname: 'calling-sfu-qa.zillit.com', port: null },
+	dev   : { protocol: 'wss', hostname: 'calling-sfu-dev.zillit.com',  port: null },
+	qa    : { protocol: 'wss', hostname: 'calling-sfu-qa.zillit.com',  port: null },
 	prod  : { protocol: 'wss', hostname: 'calling-sfu-prod.zillit.com', port: null },
 };
 
