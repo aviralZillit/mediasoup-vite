@@ -11,10 +11,10 @@ import qs from 'qs';
  */
 
 const BACKENDS = {
-	local : { protocol: 'wss', hostname: 'localhost',            port: 4443 },
-	dev   : { protocol: 'wss', hostname: 'meet-dev.zillit.com', port: null },
-	qa    : { protocol: 'wss', hostname: 'meet-qa.zillit.com',  port: null },
-	prod  : { protocol: 'wss', hostname: 'meet.zillit.com',     port: null },
+	local : { protocol: 'wss', hostname: 'localhost',                  port: 4443 },
+	dev   : { protocol: 'wss', hostname: 'mediasoup-dev.zillit.com',  port: null },
+	qa    : { protocol: 'wss', hostname: 'calling-sfu-qa.zillit.com', port: null },
+	prod  : { protocol: 'wss', hostname: 'calling-sfu-prod.zillit.com', port: null },
 };
 
 const env = (import.meta.env.VITE_NODE_ENV || 'local').trim().toLowerCase();
