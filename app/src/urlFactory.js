@@ -4,14 +4,14 @@ import qs from 'qs';
  * Backend connection — driven by NODE_ENV.
  *
  * Usage (in app/.env):
- *   VITE_NODE_ENV=local   → wss://localhost:4443
+ *   VITE_NODE_ENV=local   → ws://localhost:4443
  *   VITE_NODE_ENV=dev     → wss://meet-dev.zillit.com
  *   VITE_NODE_ENV=qa      → wss://meet-qa.zillit.com
  *   VITE_NODE_ENV=prod    → wss://meet.zillit.com
  */
 
 const BACKENDS = {
-	local : { protocol: 'wss', hostname: 'localhost',                  port: 4443 },
+	local : { protocol: 'ws', hostname: 'localhost',                   port: 4443 },
 	dev   : { protocol: 'wss', hostname: 'mediasoup-dev.zillit.com',  port: null },
 	qa    : { protocol: 'wss', hostname: 'calling-sfu-qa.zillit.com',  port: null },
 	prod  : { protocol: 'wss', hostname: 'calling-sfu-prod.zillit.com', port: null },
