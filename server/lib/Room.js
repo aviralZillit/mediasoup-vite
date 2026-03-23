@@ -1358,11 +1358,35 @@ class Room extends EventEmitter
 				// Mark the new Peer as joined.
 				peer.data.joined = true;
 
+				// Log consumer creation for debugging.
+				const isBot = peer.id.startsWith('recorder-');
+
+				if (isBot)
+				{
+					logger.info(
+						'Bot joining — creating consumers [botId:%s, existingPeers:%d, peerProducers:%s]',
+						peer.id,
+						joinedPeers.filter((p) => p.id !== peer.id).length,
+						joinedPeers
+							.filter((p) => p.id !== peer.id)
+							.map((p) => `${p.data.displayName}:${p.data.producers.size}producers`)
+							.join(', '));
+				}
+
 				for (const joinedPeer of joinedPeers)
 				{
 					// Create Consumers for existing Producers.
 					for (const producer of joinedPeer.data.producers.values())
 					{
+						if (isBot)
+						{
+							logger.info(
+								'Bot consumer: [from:%s, kind:%s, producerId:%s]',
+								joinedPeer.data.displayName,
+								producer.kind,
+								producer.id);
+						}
+
 						this._createConsumer(
 							{
 								consumerPeer : peer,
@@ -2392,7 +2416,12 @@ class Room extends EventEmitter
 		// This should not happen.
 		if (!transport)
 		{
-			logger.warn('_createConsumer() | Transport for consuming not found');
+			logger.warn(
+				'_createConsumer() | Transport for consuming not found [consumerPeer:%s, producerPeer:%s, producerId:%s, transports:%d]',
+				consumerPeer.id,
+				producerPeer.id || producerPeer.data?.displayName,
+				producer.id,
+				consumerPeer.data.transports.size);
 
 			return;
 		}
