@@ -159,6 +159,20 @@ class RecorderBot
 		// 5) Start video capture via CDP screenshots → FFmpeg.
 		await this._startVideoCapture();
 
+		// Save a debug screenshot so we can see what the bot renders.
+		try
+		{
+			const debugScreenshot = path.join(this._rawDir, 'bot-debug-screenshot.png');
+
+			await this._page.screenshot({ path: debugScreenshot, fullPage: false });
+
+			logger.info('Debug screenshot saved [path:%s]', debugScreenshot);
+		}
+		catch (e)
+		{
+			logger.warn('Debug screenshot failed: %s', e.message);
+		}
+
 		// Log what the bot sees periodically for debugging.
 		this._debugInterval = setInterval(async () =>
 		{
