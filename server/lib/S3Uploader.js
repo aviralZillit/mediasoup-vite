@@ -19,12 +19,16 @@ const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { GetObjectCommand } = require('@aws-sdk/client-s3');
 const Logger = require('./Logger');
-const config = require('../config');
 
 const logger = new Logger('S3Uploader');
 
 const MAX_RETRIES = 3;
 const PRESIGNED_EXPIRY = 24 * 60 * 60; // 24 hours in seconds
+
+// Read directly from process.env — config.js is gitignored and may
+// not have the aws block on deployed servers.
+const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
+const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET || 'mediasoup-recordings';
 
 let _s3Client = null;
 
@@ -33,7 +37,7 @@ function _getS3Client()
 	if (!_s3Client)
 	{
 		_s3Client = new S3Client({
-			region : config.aws.region || 'us-east-1',
+			region : AWS_REGION,
 		});
 	}
 
@@ -49,7 +53,7 @@ function _getS3Client()
  */
 async function uploadRecording(localPath, roomId)
 {
-	const bucket = config.aws.s3Bucket;
+	const bucket = AWS_S3_BUCKET;
 
 	if (!bucket)
 		throw new Error('AWS_S3_BUCKET not configured');
