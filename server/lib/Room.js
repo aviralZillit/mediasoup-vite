@@ -2180,7 +2180,8 @@ class Room extends EventEmitter
 				{
 					// Bot-based recording: launch headless Chrome that joins
 					// the room, sees everything, and records the tab output.
-					const appUrl = `https://localhost:${process.env.APP_PORT || 3000}`;
+					const appUrl = process.env.RECORDER_APP_URL ||
+						`https://localhost:${process.env.APP_PORT || 3000}`;
 
 					this._recording = new RecorderBot(
 						{
