@@ -49,14 +49,9 @@ const producers = (state = initialState, action) => {
 		}
 
 		case 'SET_PRODUCER_SCORE': {
-			const { producerId, score } = action.payload;
-			const producer = state[producerId];
-
-			if (!producer) return state;
-
-			const newProducer = { ...producer, score };
-
-			return { ...state, [producerId]: newProducer };
+			// Score updates are cosmetic — intentionally ignored to prevent
+			// re-render cascades that cause video flicker and audio disruption.
+			return state;
 		}
 
 		default: {

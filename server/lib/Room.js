@@ -9,6 +9,8 @@ const Logger = require('./Logger');
 const utils = require('./utils');
 const config = require('../config');
 const Bot = require('./Bot');
+const RecorderBot = require('./RecorderBot');
+const S3Uploader = require('./S3Uploader');
 
 const CallRepo = require('../repositories/MediasoupCalls');
 const logger = new Logger('Room');
@@ -140,6 +142,13 @@ class Room extends EventEmitter
 		// @type {Boolean}
 		this._networkThrottled = false;
 
+		// Active recording instance.
+		// @type {Recording|null}
+		this._recording = null;
+
+		// Grace timer for recording — waits before stopping when all peers leave.
+		this._recordingGraceTimer = null;
+
 		// Real-time analytics and monitoring (Ultra Memory Optimized)
 		this._analytics = {
 			roomCreatedAt    : Date.now(),
@@ -190,6 +199,50 @@ class Room extends EventEmitter
 		logger.debug('close()');
 
 		this._closed = true;
+
+		// Clear all monitoring intervals
+		if (this._monitoringIntervals)
+		{
+			for (const interval of this._monitoringIntervals.values())
+			{
+				clearInterval(interval);
+			}
+			this._monitoringIntervals.clear();
+		}
+
+		// Cancel recording grace timer.
+		if (this._recordingGraceTimer)
+		{
+			clearTimeout(this._recordingGraceTimer);
+			this._recordingGraceTimer = null;
+		}
+
+		// Stop any active recording.
+		if (this._recording)
+		{
+			if (this._recording.active)
+			{
+				this._recording.stop()
+					.then((outputFile) =>
+					{
+						if (outputFile)
+						{
+							this._uploadToS3(
+								outputFile, this._roomId, this._recording.roomDir);
+						}
+					})
+					.catch((error) =>
+					{
+						logger.error('Failed to stop bot on room close: %o', error);
+					});
+			}
+			else if (typeof this._recording.close === 'function')
+			{
+				this._recording.close();
+			}
+
+			this._recording = null;
+		}
 
 		// Close the protoo Room.
 		this._protooRoom.close();
@@ -322,6 +375,124 @@ class Room extends EventEmitter
 
 			logger.debug('protoo Peer "close" event [peerId:%s]', peer.id);
 
+			// Handle recording when any peer leaves.
+			if (this._recording && this._recording.active)
+			{
+				const wasInitiator = this._recording.initiatorPeerId === peer.id;
+				const remainingPeers = this._getJoinedPeers({ excludePeer: peer });
+
+				if (wasInitiator && remainingPeers.length > 0)
+				{
+					// Transfer recording ownership to the next peer.
+					const newInitiator = remainingPeers[0];
+
+					this._recording.initiatorPeerId = newInitiator.id;
+
+					logger.info(
+						'Recording initiator transferred [from:%s, to:%s]',
+						peer.id, newInitiator.id);
+
+					for (const otherPeer of remainingPeers)
+					{
+						otherPeer.notify(
+							'recordingInitiatorChanged',
+							{
+								oldPeerId   : peer.id,
+								newPeerId   : newInitiator.id,
+								displayName : newInitiator.data.displayName,
+							}).catch(() => {});
+					}
+				}
+				else if (remainingPeers.length === 0)
+				{
+					// No peers left — but DON'T stop immediately.
+					// The peer might reconnect (browser refresh, network blip),
+					// or a new peer might join in a few seconds. Wait 15s.
+					logger.info(
+						'All peers left during recording — waiting 15s before stopping [peerId:%s]',
+						peer.id);
+
+					// Cancel any existing grace timer.
+					if (this._recordingGraceTimer)
+					{
+						clearTimeout(this._recordingGraceTimer);
+					}
+
+					this._recordingGraceTimer = setTimeout(async () =>
+					{
+						this._recordingGraceTimer = null;
+
+						// Check again if peers have rejoined.
+						if (!this._recording || !this._recording.active)
+							return;
+
+						const currentPeers = this._getJoinedPeers();
+
+						if (currentPeers.length > 0)
+						{
+							// Someone rejoined — transfer initiator.
+							this._recording.initiatorPeerId = currentPeers[0].id;
+							logger.info(
+								'Peer rejoined during grace period — recording continues [newInitiator:%s]',
+								currentPeers[0].id);
+
+							return;
+						}
+
+						// Still no peers — stop recording.
+						logger.info(
+							'Grace period expired, no peers — stopping recording');
+
+						try
+						{
+							const outputFile = await this._recording.stop();
+
+							if (outputFile)
+							{
+								logger.info(
+									'Bot recording saved [output:%s]', outputFile);
+
+								this._uploadToS3(
+									outputFile, this._roomId,
+									this._recording.roomDir);
+							}
+						}
+						catch (error)
+						{
+							logger.error('Failed to stop recording on peer leave: %o', error);
+
+							if (this._recording &&
+								typeof this._recording.close === 'function')
+							{
+								this._recording.close();
+							}
+						}
+
+						this._recording = null;
+					}, 15000);
+				}
+				else if (wasInitiator)
+				{
+					// Initiator left but other peers remain — transfer.
+					const newInitiator = remainingPeers[0];
+
+					this._recording.initiatorPeerId = newInitiator.id;
+
+					logger.info(
+						'Recording initiator transferred [from:%s, to:%s]',
+						peer.id, newInitiator.id);
+				}
+
+				// Cancel grace timer if we still have peers.
+				if (remainingPeers.length > 0 && this._recordingGraceTimer)
+				{
+					clearTimeout(this._recordingGraceTimer);
+					this._recordingGraceTimer = null;
+
+					logger.info('Cancelled recording grace timer — peers still present');
+				}
+			}
+
 			// Record peer departure analytics
 			this._recordEvent('peer_left', 
 				{
@@ -334,7 +505,7 @@ class Room extends EventEmitter
 			// If the Peer was joined, notify all Peers.
 			if (peer.data.joined)
 			{
-				for (const otherPeer of this._getJoinedPeers({ excludePeer: peer }))
+				for (const otherPeer of this._getJoinedPeers({ excludePeer: peer, includeBot: true }))
 				{
 					otherPeer.notify('peerClosed', { peerId: peer.id })
 						.catch(() => {});
@@ -399,28 +570,28 @@ class Room extends EventEmitter
 
 						logger.info(`✅ Call auto-ended for room ${this._roomId} - no active participants`);
 
-						// Notify zillit_calling via webhook so it can emit to all chat room members
+						// Notify zillit_calling via webhook for BOTH group AND private calls
 						try 
 						{
 							const zillit_calling_url = process.env.ZILLIT_CALLING_URL;
 							
-							if (zillit_calling_url && call.chat_room_id) 
+							if (zillit_calling_url) 
 							{
 								const webhookUrl = `${zillit_calling_url}/api/v2/mediasoup-call/call-ended-webhook`;
 								
 								await axios.post(webhookUrl, {
 									room_id      : this._roomId,
-									chat_room_id : call.chat_room_id,
+									chat_room_id : call.chat_room_id || null, // null for private calls, chat_room_id for group calls
 									project_id   : call.project_id.toString()
 								}, {
 									timeout : 5000 // 5 second timeout
 								});
 
-								logger.info(`✅ Notified zillit_calling about call end for room ${this._roomId}`);
+								logger.info(`✅ Notified zillit_calling about ${call.chat_room_id ? 'group' : 'private'} call end for room ${this._roomId}`);
 							}
 							else 
 							{
-								logger.warn(`⚠️  Webhook notification skipped: ${!zillit_calling_url ? 'ZILLIT_CALLING_URL not set' : 'No chat_room_id'}`);
+								logger.warn('⚠️  Webhook notification skipped: ZILLIT_CALLING_URL not set');
 							}
 						}
 						catch (webhookError) 
@@ -517,8 +688,8 @@ class Room extends EventEmitter
 		// Store the Broadcaster into the map.
 		this._broadcasters.set(broadcaster.id, broadcaster);
 
-		// Notify the new Broadcaster to all Peers.
-		for (const otherPeer of this._getJoinedPeers())
+		// Notify the new Broadcaster to all Peers (including recorder bot).
+		for (const otherPeer of this._getJoinedPeers({ includeBot: true }))
 		{
 			otherPeer.notify(
 				'newPeer',
@@ -981,6 +1152,73 @@ class Room extends EventEmitter
 		};
 	}
 
+	/**
+	 * Run composition in the background and notify peers when done.
+	 */
+	/**
+	 * Upload a recording MP4 to S3 and notify peers.
+	 * Runs in the background via setImmediate.
+	 *
+	 * @param {String} outputFile - Local path to the MP4.
+	 * @param {String} roomId     - Room ID for S3 folder structure.
+	 * @param {String} roomDir    - Local room directory (for cleanup).
+	 */
+	_uploadToS3(outputFile, roomId, roomDir)
+	{
+		setImmediate(async () =>
+		{
+			try
+			{
+				const { s3Key, presignedUrl } =
+					await S3Uploader.uploadRecording(outputFile, roomId);
+
+				logger.info(
+					'Recording uploaded to S3 [roomId:%s, key:%s]',
+					roomId, s3Key);
+
+				// Notify all joined peers with the download URL.
+				for (const peer of this._getJoinedPeers())
+				{
+					peer.notify(
+						'recordingReady',
+						{
+							outputFile : presignedUrl,
+							s3Key,
+						}).catch(() => {});
+
+					// Send recording link as a chat message to all peers.
+					peer.notify(
+						'chatMessage',
+						{
+							peerId      : 'system',
+							displayName : 'Recording Bot',
+							message     : `📹 Recording is ready! Download: ${presignedUrl}`,
+							timestamp   : Date.now(),
+						}).catch(() => {});
+				}
+
+				// Clean up local files.
+				S3Uploader.cleanupLocal(roomDir, outputFile);
+			}
+			catch (error)
+			{
+				logger.error('S3 upload failed [roomId:%s]: %o',
+					roomId, error);
+
+				// Still notify peers with the local path as fallback.
+				for (const peer of this._getJoinedPeers())
+				{
+					peer.notify(
+						'recordingReady',
+						{
+							outputFile,
+							error : 'S3 upload failed, recording saved locally',
+						}).catch(() => {});
+				}
+			}
+		});
+	}
+
 	_handleAudioLevelObserver()
 	{
 		this._audioLevelObserver.on('volumes', (volumes) =>
@@ -1095,16 +1333,60 @@ class Room extends EventEmitter
 						raisedHand  : joinedPeer.data.raisedHand || false
 					}));
 
-				accept({ peers: peerInfos });
+				accept({
+					peers            : peerInfos,
+					recordingActive  : Boolean(this._recording && this._recording.active),
+				});
+
+				// Cancel recording grace timer — a peer has joined.
+				if (this._recordingGraceTimer)
+				{
+					clearTimeout(this._recordingGraceTimer);
+					this._recordingGraceTimer = null;
+
+					// Transfer recording initiator to the new peer if needed.
+					if (this._recording && this._recording.active)
+					{
+						this._recording.initiatorPeerId = peer.id;
+
+						logger.info(
+							'Recording grace timer cancelled — new peer joined [peerId:%s]',
+							peer.id);
+					}
+				}
 
 				// Mark the new Peer as joined.
 				peer.data.joined = true;
+
+				// Log consumer creation for debugging.
+				const isBot = peer.id.startsWith('recorder-');
+
+				if (isBot)
+				{
+					logger.info(
+						'Bot joining — creating consumers [botId:%s, existingPeers:%d, peerProducers:%s]',
+						peer.id,
+						joinedPeers.filter((p) => p.id !== peer.id).length,
+						joinedPeers
+							.filter((p) => p.id !== peer.id)
+							.map((p) => `${p.data.displayName}:${p.data.producers.size}producers`)
+							.join(', '));
+				}
 
 				for (const joinedPeer of joinedPeers)
 				{
 					// Create Consumers for existing Producers.
 					for (const producer of joinedPeer.data.producers.values())
 					{
+						if (isBot)
+						{
+							logger.info(
+								'Bot consumer: [from:%s, kind:%s, producerId:%s]',
+								joinedPeer.data.displayName,
+								producer.kind,
+								producer.id);
+						}
+
 						this._createConsumer(
 							{
 								consumerPeer : peer,
@@ -1136,9 +1418,20 @@ class Room extends EventEmitter
 						dataProducer     : this._bot.dataProducer
 					});
 
-				// Notify the new Peer to all other Peers.
-				for (const otherPeer of this._getJoinedPeers({ excludePeer: peer }))
+				// Notify the new Peer to all other Peers (but not for recorder bots).
+				const isRecorderBot = peer.id.startsWith('recorder-');
+
+				// Notify existing peers about the new peer.
+				// Bot peers are NOT announced to regular users.
+				// But recorder bots DO receive newPeer notifications
+				// (so they render all participants in the recording).
+				for (const otherPeer of this._getJoinedPeers({ excludePeer: peer, includeBot: true }))
 				{
+					// Don't announce a recorder bot to anyone.
+					if (isRecorderBot) break;
+
+					// Regular users don't see the bot (it's already excluded
+					// by the filter above since bot.id != peer.id).
 					otherPeer.notify(
 						'newPeer',
 						{
@@ -1255,6 +1548,26 @@ class Room extends EventEmitter
 					catch (error) {}
 				}
 
+				// Cap the recorder bot's outgoing bitrate so it doesn't
+				// compete with real peers for bandwidth. The bot only needs
+				// enough to render video in headless Chrome for screenshots.
+				if (peer.id.startsWith('recorder-') && consuming)
+				{
+					try
+					{
+						await transport.setMaxOutgoingBitrate(2000000); // 2 Mbps
+
+						logger.info(
+							'Capped recorder bot transport outgoing bitrate [peerId:%s, maxOutgoing:2Mbps]',
+							peer.id);
+					}
+					catch (error)
+					{
+						logger.warn(
+							'Failed to cap recorder bot bitrate: %o', error);
+					}
+				}
+
 				break;
 			}
 
@@ -1349,7 +1662,9 @@ class Room extends EventEmitter
 				accept({ id: producer.id });
 
 				// Optimization: Create a server-side Consumer for each Peer.
-				for (const otherPeer of this._getJoinedPeers({ excludePeer: peer }))
+				// includeBot: true — recorder bot MUST receive consumers
+				// for all producers so it can capture all participants.
+				for (const otherPeer of this._getJoinedPeers({ excludePeer: peer, includeBot: true }))
 				{
 					this._createConsumer(
 						{
@@ -1406,6 +1721,19 @@ class Room extends EventEmitter
 						.catch(() => {});
 				}
 
+				// If SFU recording is active, add this producer.
+				// RecorderBot doesn't need this — it captures the rendered page.
+				if (this._recording && this._recording.active &&
+					typeof this._recording.addProducer === 'function')
+				{
+					this._recording.addProducer(producer, peer)
+						.catch((error) =>
+						{
+							logger.error(
+								'Failed to add producer to recording: %o', error);
+						});
+				}
+
 				break;
 			}
 
@@ -1420,6 +1748,19 @@ class Room extends EventEmitter
 
 				if (!producer)
 					throw new Error(`producer with id "${producerId}" not found`);
+
+				// If SFU recording is active, remove this producer.
+				// RecorderBot doesn't need this — it captures the rendered page.
+				if (this._recording && this._recording.active &&
+					typeof this._recording.removeProducer === 'function')
+				{
+					this._recording.removeProducer(producerId)
+						.catch((error) =>
+						{
+							logger.error(
+								'Failed to remove producer from recording: %o', error);
+						});
+				}
 
 				producer.close();
 
@@ -1867,6 +2208,174 @@ class Room extends EventEmitter
 				break;
 			}
 
+			case 'startRecording':
+			{
+				if (!peer.data.joined)
+					throw new Error('Peer not yet joined');
+
+				if (this._recording && this._recording.active)
+				{
+					reject(400, 'Recording already in progress');
+
+					break;
+				}
+
+				try
+				{
+					// Bot-based recording: launch headless Chrome that joins
+					// the room, sees everything, and records the tab output.
+					const appUrl = process.env.RECORDER_APP_URL ||
+						`https://localhost:${process.env.APP_PORT || 3000}`;
+
+					this._recording = new RecorderBot(
+						{
+							roomId   : this._roomId,
+							roomName : this._roomId,
+							appUrl,
+						});
+
+					this._recording.initiatorPeerId = peer.id;
+
+					await this._recording.start();
+
+					// Notify all peers that recording has started.
+					for (const otherPeer of this._getJoinedPeers())
+					{
+						otherPeer.notify(
+							'recordingStarted',
+							{
+								peerId      : peer.id,
+								displayName : peer.data.displayName,
+							}).catch(() => {});
+					}
+
+					logger.info(
+						'startRecording() | bot recording started [roomId:%s, peerId:%s]',
+						this._roomId, peer.id);
+
+					accept();
+				}
+				catch (error)
+				{
+					logger.error('startRecording() failed: %o', error);
+
+					// Reset so the room can retry recording later.
+					if (this._recording)
+					{
+						if (typeof this._recording.close === 'function')
+							this._recording.close();
+
+						this._recording = null;
+					}
+
+					reject(500, error.toString());
+				}
+
+				break;
+			}
+
+			case 'stopRecording':
+			{
+				if (!peer.data.joined)
+					throw new Error('Peer not yet joined');
+
+				if (!this._recording || !this._recording.active)
+				{
+					reject(400, 'No recording in progress');
+
+					break;
+				}
+
+				try
+				{
+					const recording = this._recording;
+
+					this._recording = null;
+
+					// Respond immediately — user sees "Recording stopped".
+					accept();
+
+					// Notify all peers.
+					for (const otherPeer of this._getJoinedPeers())
+					{
+						otherPeer.notify(
+							'recordingStopped',
+							{
+								peerId    : peer.id,
+								composing : true,
+							}).catch(() => {});
+					}
+
+					logger.info(
+						'stopRecording() | stopping bot [roomId:%s]',
+						this._roomId);
+
+					// Stop the bot → get MP4 → upload to S3.
+					// Runs in background so user gets instant response.
+					setImmediate(async () =>
+					{
+						try
+						{
+							const outputFile = await recording.stop();
+
+							if (outputFile)
+							{
+								logger.info(
+									'Bot recording complete [roomId:%s, output:%s]',
+									this._roomId, outputFile);
+
+								// Upload to S3 (also notifies peers when done).
+								this._uploadToS3(
+									outputFile, this._roomId, recording.roomDir);
+							}
+							else
+							{
+								logger.warn(
+									'Bot recording returned no output [roomId:%s]',
+									this._roomId);
+
+								for (const p of this._getJoinedPeers())
+								{
+									p.notify('recordingReady',
+										{ outputFile: null, error: 'Recording failed' })
+										.catch(() => {});
+								}
+							}
+						}
+						catch (error)
+						{
+							logger.error(
+								'Bot recording stop failed [roomId:%s]: %o',
+								this._roomId, error);
+
+							for (const p of this._getJoinedPeers())
+							{
+								p.notify('recordingReady',
+									{ outputFile: null, error: error.message })
+									.catch(() => {});
+							}
+						}
+					});
+				}
+				catch (error)
+				{
+					logger.error('stopRecording() failed: %o', error);
+
+					reject(500, error.toString());
+				}
+
+				break;
+			}
+
+			case 'getRecordingStatus':
+			{
+				accept({
+					recording : Boolean(this._recording && this._recording.active),
+				});
+
+				break;
+			}
+
 			default:
 			{
 				logger.error('unknown request.method "%s"', request.method);
@@ -1879,10 +2388,13 @@ class Room extends EventEmitter
 	/**
 	 * Helper to get the list of joined protoo peers.
 	 */
-	_getJoinedPeers({ excludePeer = undefined } = {})
+	_getJoinedPeers({ excludePeer = undefined, includeBot = false } = {})
 	{
 		return this._protooRoom.peers
-			.filter((peer) => peer.data.joined && peer !== excludePeer);
+			.filter((peer) =>
+				peer.data.joined &&
+				peer !== excludePeer &&
+				(includeBot || !peer.id.startsWith('recorder-')));
 	}
 
 	/**
@@ -1924,7 +2436,12 @@ class Room extends EventEmitter
 		// This should not happen.
 		if (!transport)
 		{
-			logger.warn('_createConsumer() | Transport for consuming not found');
+			logger.warn(
+				'_createConsumer() | Transport for consuming not found [consumerPeer:%s, producerPeer:%s, producerId:%s, transports:%d]',
+				consumerPeer.id,
+				producerPeer.id || producerPeer.data?.displayName,
+				producer.id,
+				consumerPeer.data.transports.size);
 
 			return;
 		}
@@ -2069,6 +2586,32 @@ class Room extends EventEmitter
 						// of this new stream once its PeerConnection is already ready to process
 						// and associate it.
 						await consumer.resume();
+
+						// For recorder bot consumers, force lowest simulcast layer.
+						// The bot captures via CDP screenshots at 15fps — it doesn't
+						// need high-res simulcast layers and consuming them would
+						// steal bandwidth from real human peers.
+						if (
+							consumerPeer.id.startsWith('recorder-') &&
+							consumer.kind === 'video' &&
+							consumer.type === 'simulcast'
+						)
+						{
+							try
+							{
+								await consumer.setPreferredLayers(
+									{ spatialLayer: 0, temporalLayer: 0 });
+
+								logger.info(
+									'Set recorder bot consumer to lowest layer [consumerId:%s, producerId:%s]',
+									consumer.id, producer.id);
+							}
+							catch (e)
+							{
+								logger.warn(
+									'Failed to set bot consumer layers: %o', e);
+							}
+						}
 
 						consumerPeer.notify(
 							'consumerScore',
@@ -2283,51 +2826,24 @@ class Room extends EventEmitter
 	 */
 	_monitorTransportHealth(transport, peer)
 	{
-		// Get transport stats
 		transport.getStats()
 			.then((stats) =>
 			{
 				for (const stat of stats)
 				{
-					if (stat.type === 'transport')
+					if (stat.type === 'transport' && stat.packetLossPercentage > 5)
 					{
-						const transportInfo = 
-						{
-							transportId     : transport.id,
-							peerId          : peer.id,
-							bytesReceived   : stat.bytesReceived || 0,
-							bytesSent       : stat.bytesSent || 0,
-							packetsReceived : stat.packetsReceived || 0,
-							packetsSent     : stat.packetsSent || 0,
-							timestamp       : Date.now()
-						};
-
-						// Update global data transfer metrics
-						this._analytics.dataTransferred.received += stat.bytesReceived || 0;
-						this._analytics.dataTransferred.sent += stat.bytesSent || 0;
-
-						// Check for transport issues
-						if (stat.packetLossPercentage > 5)
-						{
-							this._recordEvent('transport_high_packet_loss', 
-								{
-									transportId : transport.id,
-									peerId      : peer.id,
-									packetLoss  : stat.packetLossPercentage,
-									severity    : 'warning'
-								});
-						}
+						this._recordEvent('transport_high_packet_loss',
+							{
+								transportId : transport.id,
+								peerId      : peer.id,
+								packetLoss  : stat.packetLossPercentage,
+								severity    : 'warning'
+							});
 					}
 				}
 			})
-			.catch((error) =>
-			{
-				this._recordError('transport_stats_failed', error, 
-					{
-						transportId : transport.id,
-						peerId      : peer.id
-					});
-			});
+			.catch(() => {});
 	}
 
 	/**
@@ -2335,60 +2851,39 @@ class Room extends EventEmitter
 	 */
 	_monitorProducerHealth(producer, peer)
 	{
-		// Get producer stats
 		producer.getStats()
 			.then((stats) =>
 			{
 				for (const stat of stats)
 				{
-					if (stat.type === 'outbound-rtp')
+					if (stat.type !== 'outbound-rtp')
+						continue;
+
+					if (stat.packetsLost > 50)
 					{
-						const producerInfo = 
-						{
-							producerId  : producer.id,
-							peerId      : peer.id,
-							kind        : producer.kind,
-							packetsSent : stat.packetsSent || 0,
-							bytesSent   : stat.bytesSent || 0,
-							packetsLost : stat.packetsLost || 0,
-							nackCount   : stat.nackCount || 0,
-							timestamp   : Date.now()
-						};
+						this._recordEvent('producer_high_packet_loss',
+							{
+								producerId  : producer.id,
+								peerId      : peer.id,
+								kind        : producer.kind,
+								packetsLost : stat.packetsLost,
+								severity    : 'warning'
+							});
+					}
 
-						// Check for producer issues
-						if (stat.packetsLost > 50)
-						{
-							this._recordEvent('producer_high_packet_loss', 
-								{
-									producerId  : producer.id,
-									peerId      : peer.id,
-									kind        : producer.kind,
-									packetsLost : stat.packetsLost,
-									severity    : 'warning'
-								});
-						}
-
-						if (producer.kind === 'video' && stat.framesPerSecond < 15)
-						{
-							this._recordEvent('producer_low_framerate', 
-								{
-									producerId : producer.id,
-									peerId     : peer.id,
-									framerate  : stat.framesPerSecond,
-									severity   : 'warning'
-								});
-						}
+					if (producer.kind === 'video' && stat.framesPerSecond < 15)
+					{
+						this._recordEvent('producer_low_framerate',
+							{
+								producerId : producer.id,
+								peerId     : peer.id,
+								framerate  : stat.framesPerSecond,
+								severity   : 'warning'
+							});
 					}
 				}
 			})
-			.catch((error) =>
-			{
-				this._recordError('producer_stats_failed', error, 
-					{
-						producerId : producer.id,
-						peerId     : peer.id
-					});
-			});
+			.catch(() => {});
 	}
 
 	/**
@@ -2396,61 +2891,39 @@ class Room extends EventEmitter
 	 */
 	_monitorConsumerHealth(consumer, peer)
 	{
-		// Get consumer stats
 		consumer.getStats()
 			.then((stats) =>
 			{
 				for (const stat of stats)
 				{
-					if (stat.type === 'inbound-rtp')
+					if (stat.type !== 'inbound-rtp')
+						continue;
+
+					if (stat.packetsLost > 50)
 					{
-						const consumerInfo = 
-						{
-							consumerId      : consumer.id,
-							peerId          : peer.id,
-							kind            : consumer.kind,
-							packetsReceived : stat.packetsReceived || 0,
-							bytesReceived   : stat.bytesReceived || 0,
-							packetsLost     : stat.packetsLost || 0,
-							jitter          : stat.jitter || 0,
-							timestamp       : Date.now()
-						};
+						this._recordEvent('consumer_high_packet_loss',
+							{
+								consumerId  : consumer.id,
+								peerId      : peer.id,
+								kind        : consumer.kind,
+								packetsLost : stat.packetsLost,
+								severity    : 'warning'
+							});
+					}
 
-						// Check for consumer issues
-						if (stat.packetsLost > 50)
-						{
-							this._recordEvent('consumer_high_packet_loss', 
-								{
-									consumerId  : consumer.id,
-									peerId      : peer.id,
-									kind        : consumer.kind,
-									packetsLost : stat.packetsLost,
-									severity    : 'warning'
-								});
-						}
-
-						// Check audio quality issues
-						if (consumer.kind === 'audio' && stat.jitter > 0.1)
-						{
-							this._recordEvent('consumer_high_jitter', 
-								{
-									consumerId : consumer.id,
-									peerId     : peer.id,
-									jitter     : stat.jitter,
-									severity   : 'warning'
-								});
-						}
+					if (consumer.kind === 'audio' && stat.jitter > 0.1)
+					{
+						this._recordEvent('consumer_high_jitter',
+							{
+								consumerId : consumer.id,
+								peerId     : peer.id,
+								jitter     : stat.jitter,
+								severity   : 'warning'
+							});
 					}
 				}
 			})
-			.catch((error) =>
-			{
-				this._recordError('consumer_stats_failed', error, 
-					{
-						consumerId : consumer.id,
-						peerId     : peer.id
-					});
-			});
+			.catch(() => {});
 	}
 
 	/**
@@ -2528,11 +3001,10 @@ class Room extends EventEmitter
 
 		this._analytics.connectionEvents.push(event);
 
-		// Keep only recent events (memory optimized)
-		if (this._analytics.connectionEvents.length > this._maxConnectionEvents)
+		// Keep only recent events — splice in-place to avoid creating new arrays
+		while (this._analytics.connectionEvents.length > this._maxConnectionEvents)
 		{
-			this._analytics.connectionEvents = 
-				this._analytics.connectionEvents.slice(-this._maxConnectionEvents);
+			this._analytics.connectionEvents.shift();
 		}
 
 		// Only log important events to reduce log noise
@@ -2562,10 +3034,10 @@ class Room extends EventEmitter
 
 		this._analytics.errors.push(errorEvent);
 
-		// Keep only recent errors (memory optimized)
-		if (this._analytics.errors.length > this._maxErrors)
+		// Keep only recent errors — shift in-place to avoid creating new arrays
+		while (this._analytics.errors.length > this._maxErrors)
 		{
-			this._analytics.errors = this._analytics.errors.slice(-this._maxErrors);
+			this._analytics.errors.shift();
 		}
 
 		logger.error('Error recorded [roomId:%s, type:%s, error:%s, context:%o]', 
@@ -2651,23 +3123,16 @@ class Room extends EventEmitter
 	 */
 	_cleanupAnalyticsMemory()
 	{
-		const now = Date.now();
-		const oldEventThreshold = now - (3600000); // 1 hour ago
+		// Trim arrays in-place — they're already capped by push/shift,
+		// so just enforce max length as a safety net.
+		while (this._analytics.connectionEvents.length > this._maxConnectionEvents)
+			this._analytics.connectionEvents.shift();
 
-		// Clean old connection events
-		this._analytics.connectionEvents = this._analytics.connectionEvents
-			.filter((event) => event.timestamp > oldEventThreshold)
-			.slice(-this._maxConnectionEvents);
+		while (this._analytics.errors.length > this._maxErrors)
+			this._analytics.errors.shift();
 
-		// Clean old errors  
-		this._analytics.errors = this._analytics.errors
-			.filter((error) => error.timestamp > oldEventThreshold)
-			.slice(-this._maxErrors);
-
-		// Clean old peer events
-		this._analytics.peerEvents = this._analytics.peerEvents
-			.filter((event) => event.timestamp > oldEventThreshold)
-			.slice(-this._maxPeerEvents);
+		while (this._analytics.peerEvents.length > this._maxPeerEvents)
+			this._analytics.peerEvents.shift();
 
 		// Clean up connection quality for disconnected peers
 		const activePeerIds = new Set();

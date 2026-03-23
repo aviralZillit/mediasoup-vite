@@ -1,2 +1,36 @@
+// Core palette — modern dark theme
+$bg-primary: #1a1a2e;
+$bg-secondary: #16213e;
+$bg-surface: #0f3460;
+$bg-elevated: rgba(255, 255, 255, 0.06);
+$bg-hover: rgba(255, 255, 255, 0.1);
+
+$accent: #4fc3f7;
+$accent-hover: #81d4fa;
+$danger: #ef5350;
+$danger-hover: #e53935;
+$success: #66bb6a;
+$warning: #ffa726;
+
+$text-primary: rgba(255, 255, 255, 0.92);
+$text-secondary: rgba(255, 255, 255, 0.6);
+$text-muted: rgba(255, 255, 255, 0.35);
+
+$border-subtle: rgba(255, 255, 255, 0.08);
+$border-default: rgba(255, 255, 255, 0.12);
+$border-active: $accent;
+
+$radius-sm: 6px;
+$radius-md: 10px;
+$radius-lg: 14px;
+$radius-xl: 20px;
+$radius-full: 9999px;
+
+$shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+$shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+$shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
+$shadow-glow: 0 0 20px rgba(79, 195, 247, 0.25);
+
+// Legacy compat
 $COLOR_BG_1: rgba(#243b55, 0.75);
 $COLOR_BG_2: rgba(#141e30, 0.65);

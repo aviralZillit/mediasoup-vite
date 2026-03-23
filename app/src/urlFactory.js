@@ -1,43 +1,33 @@
 import qs from 'qs';
 
-let protooPort = 4443;
+/**
+ * Backend connection — driven by NODE_ENV.
+ *
+ * Usage (in app/.env):
+ *   VITE_NODE_ENV=local   → wss://localhost:4443
+ *   VITE_NODE_ENV=dev     → wss://meet-dev.zillit.com
+ *   VITE_NODE_ENV=qa      → wss://meet-qa.zillit.com
+ *   VITE_NODE_ENV=prod    → wss://meet.zillit.com
+ */
 
-if (window.location.hostname === 'test.mediasoup.org') 
-{
-	protooPort = 4444;
-}
+const BACKENDS = {
+	local : { protocol: 'wss', hostname: 'localhost',                  port: 4443 },
+	dev   : { protocol: 'wss', hostname: 'mediasoup-dev.zillit.com',  port: null },
+	qa    : { protocol: 'wss', hostname: 'calling-sfu-qa.zillit.com',  port: null },
+	prod  : { protocol: 'wss', hostname: 'calling-sfu-prod.zillit.com', port: null },
+};
 
-const hostname = window.location.hostname;
-const protocol = 'wss';
+const env = (import.meta.env.VITE_NODE_ENV || 'local').trim().toLowerCase();
+const backend = BACKENDS[env] || BACKENDS.local;
 
-// const hostname = 'v3demo.mediasoup.org'
-// const hostname = 'calling-sfu-qa.zillit.com'
-// const protocol = 'ws'
+console.log('[urlFactory] ENV=%s → %s://%s%s',
+	env, backend.protocol, backend.hostname,
+	backend.port ? `:${backend.port}` : '');
 
-export function getProtooUrl(params) 
+export function getProtooUrl(params)
 {
 	const query = qs.stringify(params);
+	const portPart = backend.port ? `:${backend.port}` : '';
 
-	return `${protocol}://${hostname}:${protooPort}/?${query}`;
+	return `${backend.protocol}://${backend.hostname}${portPart}/?${query}`;
 }
-
-// for testing QA purpose only
-
-// if (window.location.hostname === 'test.mediasoup.org') 
-// {
-// 	protooPort = 4444;
-// }
-
-// // const hostname = window.location.hostname;
-// const protocol = 'wss';
-
-// // const hostname = 'v3demo.mediasoup.org'
-// const hostname = 'calling-sfu-qa.zillit.com';
-// // const protocol = 'ws'
-
-// export function getProtooUrl(params) 
-// {
-// 	const query = qs.stringify(params);
-
-// 	return `${protocol}://${hostname}/?${query}`;
-// }

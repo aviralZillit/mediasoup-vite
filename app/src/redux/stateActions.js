@@ -350,9 +350,54 @@ export const removeNotification = (notificationId) =>
 	};
 };
 
-export const removeAllNotifications = () => 
+export const removeAllNotifications = () =>
 {
 	return {
 		type : 'REMOVE_ALL_NOTIFICATIONS'
+	};
+};
+
+export const setRecordingState = (recording) =>
+{
+	return {
+		type    : 'SET_RECORDING_STATE',
+		payload : { recording }
+	};
+};
+
+export const setRecordingInProgress = (flag) =>
+{
+	return {
+		type    : 'SET_RECORDING_IN_PROGRESS',
+		payload : { flag }
+	};
+};
+
+export const setRecordingComposing = (flag) =>
+{
+	return {
+		type    : 'SET_RECORDING_COMPOSING',
+		payload : { flag }
+	};
+};
+
+export const setRecordingReady = (outputFile) =>
+{
+	return {
+		type    : 'SET_RECORDING_READY',
+		payload : { outputFile }
+	};
+};
+
+export const toggleChatOpen = () =>
+{
+	return { type: 'TOGGLE_CHAT_OPEN' };
+};
+
+export const addChatMessage = (message) =>
+{
+	return {
+		type    : 'ADD_CHAT_MESSAGE',
+		payload : { message }
 	};
 };

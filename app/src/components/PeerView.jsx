@@ -95,9 +95,11 @@ export default class PeerView extends React.Component {
 			maxSpatialLayer,
 		} = this.state;
 
+		const hideInfo = this.props.hideInfo;
+
 		return (
 			<div data-component="PeerView">
-				<div className="info">
+				{!hideInfo && <div className="info">
 					<div className="icons">
 						<div
 							className={classnames('icon', 'info', { on: showInfo })}
@@ -106,7 +108,7 @@ export default class PeerView extends React.Component {
 
 						<div
 							className={classnames('icon', 'stats')}
-							onClick={() => onStatsClick(peer.id)}
+							onClick={() => onStatsClick && onStatsClick(peer.id)}
 						/>
 					</div>
 
@@ -441,17 +443,13 @@ export default class PeerView extends React.Component {
 							</span>
 						</div>
 					</div>
-				</div>
+				</div>}
 
 				<video
 					ref={this._videoElemRef}
 					className={classnames({
-						'is-me': isMe,
+						'is-me': isMe && !hideInfo,
 						hidden: !videoVisible || !videoCanPlay,
-						'network-error':
-							videoVisible &&
-							videoMultiLayer &&
-							consumerCurrentSpatialLayer === null,
 					})}
 					autoPlay
 					playsInline

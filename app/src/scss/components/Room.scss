@@ -1,322 +1,434 @@
 [data-component='Room'] {
 	position: relative;
-	height: 100%;
 	width: 100%;
+	height: 100%;
+	background: $bg-primary;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
 
 	@include AppearFadeIn(300ms);
 
-	> .state {
-		position: fixed;
-		z-index: 100;
-		display: flex;
-		flex-direction: row;
-		justify-content: center;
-		align-items: center;
-		border-radius: 25px;
-		background-color: $COLOR_BG_1;
+	// Recorder bot mode — full screen, no chrome, dark background.
+	&.recorder-mode {
+		background: #1a1a2e;
 
-		@include desktop() {
-			top: 20px;
-			left: 20px;
-			width: 124px;
-		}
-
-		@include mobile() {
-			top: 10px;
-			left: 10px;
-			width: 110px;
-		}
-
-		> .icon {
-			flex: 0 0 auto;
-			border-radius: 100%;
-
-			@include desktop() {
-				margin: 6px;
-				margin-right: 0;
-				height: 16px;
-				width: 16px;
-			}
-
-			@include mobile() {
-				margin: 4px;
-				margin-right: 0;
-				height: 16px;
-				width: 16px;
-			}
-
-			&.new,
-			&.closed {
-				background-color: rgba(#aaa, 0.5);
-			}
-
-			&.connecting {
-				animation: Room-info-state-connecting 0.75s infinite linear;
-			}
-
-			&.connected {
-				background-color: rgba(#30bd18, 0.75);
-
-				@include mobile() {
-					display: none;
-				}
-			}
-		}
-
-		> .text {
-			flex: 100 0 auto;
-			user-select: none;
-			pointer-events: none;
-			text-align: center;
-			text-transform: uppercase;
-			font-family: 'Roboto';
-			font-weight: 400;
-			color: rgba(#fff, 0.75);
-
-			@include desktop() {
-				font-size: 12px;
-			}
-
-			@include mobile() {
-				font-size: 10px;
-			}
-
-			&.connected {
-				@include mobile() {
-					display: none;
-				}
-			}
+		[data-component='Peers'] {
+			position: absolute;
+			inset: 0;
+			width: 100%;
+			height: 100%;
 		}
 	}
 
-	> .info {
-		position: fixed;
-		z-index: 100;
-
-		@include desktop() {
-			top: 55px;
-			left: 20px;
-			width: 124px;
-		}
-
-		@include mobile() {
-			top: 40px;
-			height: 18px;
-			width: 110px;
-		}
-
-		> p.text {
-			height: 18px;
-			left: 10px;
-			display: flex;
-			flex-direction: row;
-			justify-content: center;
-			align-items: center;
-			flex: 100 0 auto;
-			user-select: none;
-			pointer-events: none;
-			text-align: center;
-			font-family: 'Roboto';
-			font-weight: 400;
-			color: rgba(#fff, 0.75);
-			border-radius: 25px;
-			background-color: $COLOR_BG_1;
-			margin-bottom: 2px;
-
-			@include desktop() {
-				font-size: 11px;
-			}
-
-			@include mobile() {
-				font-size: 9px;
-			}
-
-			> span.label {
-				color: rgba(#fff, 0.45);
-			}
-		}
-	}
-
-	> .room-link-wrapper {
-		pointer-events: none;
+	// =========================================================================
+	// TOP BAR — inside main-content, floating over video tiles only
+	// =========================================================================
+	.top-bar {
 		position: absolute;
-		z-index: 1;
 		top: 0;
 		left: 0;
 		right: 0;
+		height: 52px;
 		display: flex;
-		flex-direction: row;
-		justify-content: center;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0 20px;
+		z-index: 20;
+		background: linear-gradient(to bottom, rgba($bg-primary, 0.9), transparent);
+		transition: opacity 0.3s ease, transform 0.3s ease;
 
-		> .room-link {
-			width: auto;
-			background-color: $COLOR_BG_1;
-			border-bottom-right-radius: 4px;
-			border-bottom-left-radius: 4px;
-			box-shadow: 0px 3px 12px 2px rgba(#111, 0.4);
+		&.hidden {
+			opacity: 0;
+			transform: translateY(-20px);
+			pointer-events: none;
+		}
 
-			> a.link {
-				display: block;
-				user-select: none;
-				pointer-events: auto;
-				text-transform: uppercase;
-				font-family: 'Roboto';
-				font-weight: 400;
-				color: rgba(#fff, 0.75);
-				cursor: pointer;
-				text-decoration: none;
-				transition-property: color;
-				transition-duration: 0.1s;
+		.top-left {
+			display: flex;
+			align-items: center;
+			gap: 14px;
 
-				@include desktop() {
-					padding: 10px 20px;
-					font-size: 12px;
+			.status-dot {
+				width: 8px;
+				height: 8px;
+				border-radius: $radius-full;
+				background: #5f6368;
+				transition: background 0.3s;
+
+				&.connected { background: $success; }
+				&.connecting { background: $warning; animation: pulse-fade 1.5s ease-in-out infinite; }
+				&.closed { background: $danger; }
+			}
+
+			.rec-badge {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+				background: rgba($danger, 0.12);
+				backdrop-filter: blur(8px);
+				padding: 5px 14px;
+				border-radius: $radius-full;
+				border: 1px solid rgba($danger, 0.2);
+
+				.rec-dot {
+					width: 8px;
+					height: 8px;
+					border-radius: $radius-full;
+					background: $danger;
+					animation: pulse-fade 1.5s ease-in-out infinite;
 				}
 
+				span {
+					color: $danger;
+					font-size: 12px;
+					font-weight: 600;
+					letter-spacing: 0.8px;
+					font-variant-numeric: tabular-nums;
+				}
+			}
+
+			.composing-badge {
+				color: $warning;
+				font-size: 12px;
+				font-weight: 500;
+				padding: 5px 14px;
+				background: rgba($warning, 0.1);
+				border-radius: $radius-full;
+				border: 1px solid rgba($warning, 0.2);
+			}
+		}
+
+		.top-right {
+			.invite-link {
+				color: $accent;
+				font-size: 13px;
+				font-weight: 500;
+				text-decoration: none;
+				padding: 6px 16px;
+				border-radius: $radius-full;
+				border: 1px solid rgba($accent, 0.2);
+				transition: all 0.2s;
+				cursor: pointer;
+
+				&:hover {
+					background: rgba($accent, 0.1);
+					border-color: rgba($accent, 0.35);
+				}
+			}
+		}
+	}
+
+	// =========================================================================
+	// MAIN AREA — content + optional chat sidebar
+	// =========================================================================
+	> .main-area {
+		flex: 1 1 0;
+		min-height: 0;
+		display: flex;
+		flex-direction: row;
+		overflow: hidden;
+
+		> .main-content {
+			flex: 1 1 0;
+			position: relative;
+			min-width: 0;
+			padding: 0;
+			overflow: hidden;
+			transition: flex 0.3s ease;
+		}
+
+		> .chat-sidebar {
+			flex: 0 0 340px;
+			height: 100%;
+			animation: slide-in-right 0.3s ease-out;
+			transition: flex 0.3s ease;
+
+			@include mobile() {
+				flex: 0 0 280px;
+			}
+		}
+	}
+
+	// =========================================================================
+	// SELF-VIEW PIP — floating with glassmorphism
+	// =========================================================================
+	> .main-area > .main-content > .self-view {
+		position: absolute;
+		z-index: 50;
+		border-radius: $radius-lg;
+		overflow: hidden;
+		box-shadow: $shadow-lg;
+		border: 2px solid $border-subtle;
+		// Transition for snap-to-corner animation (disabled during drag via inline style)
+		transition: left 0.3s ease, top 0.3s ease,
+			border-color 0.3s, box-shadow 0.3s;
+		// Default position (overridden by drag inline styles)
+		bottom: 20px;
+		right: 20px;
+		user-select: none;
+
+		@include desktop() {
+			width: 220px;
+			height: 165px;
+		}
+
+		@include mobile() {
+			width: 130px;
+			height: 98px;
+		}
+
+		&:hover {
+			border-color: $border-default;
+		}
+
+		&.active-speaker {
+			border-color: $accent;
+			box-shadow: $shadow-glow;
+		}
+
+		[data-component='Me'] {
+			width: 100%;
+			height: 100%;
+		}
+	}
+
+	// =========================================================================
+	// BOTTOM TOOLBAR — floating pill with glassmorphism
+	// =========================================================================
+	> .bottom-toolbar {
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 12px 0 20px;
+		z-index: 20;
+		background: linear-gradient(to top, rgba($bg-primary, 0.8), transparent);
+		transition: opacity 0.3s ease, transform 0.3s ease;
+
+		&.hidden {
+			opacity: 0;
+			transform: translateY(20px);
+			pointer-events: none;
+		}
+
+		@include mobile() {
+			padding: 8px 0 14px;
+		}
+
+		.toolbar-center {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			background: rgba(255, 255, 255, 0.06);
+			backdrop-filter: blur(20px);
+			padding: 8px 12px;
+			border-radius: $radius-xl;
+			border: 1px solid $border-subtle;
+			box-shadow: $shadow-md;
+
+			@include mobile() {
+				gap: 6px;
+				padding: 6px 10px;
+			}
+		}
+
+		.toolbar-btn {
+			width: 48px;
+			height: 48px;
+			border-radius: $radius-full;
+			border: none;
+			cursor: pointer;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			transition: all 0.2s ease;
+			position: relative;
+			background: rgba(255, 255, 255, 0.08);
+			outline: none;
+
+			@include mobile() {
+				width: 40px;
+				height: 40px;
+			}
+
+			&:hover {
+				background: rgba(255, 255, 255, 0.14);
+				transform: scale(1.05);
+			}
+
+			&:active {
+				transform: scale(0.95);
+			}
+
+			.btn-icon {
+				width: 22px;
+				height: 22px;
+				background-size: contain;
+				background-repeat: no-repeat;
+				background-position: center;
+
 				@include mobile() {
-					padding: 6px 10px;
+					width: 18px;
+					height: 18px;
+				}
+			}
+
+			// ---- Mic ----
+			&.mic {
+				.btn-icon {
+					background-image: url('/images/icon_mic_white_on.svg');
+				}
+
+				&.off {
+					background: $danger;
+					.btn-icon { background-image: url('/images/icon_mic_white_off.svg'); }
+					&:hover { background: $danger-hover; }
+				}
+			}
+
+			// ---- Webcam ----
+			&.webcam {
+				.btn-icon {
+					background-image: url('/images/icon_webcam_white_on.svg');
+				}
+
+				&.off {
+					background: $danger;
+					.btn-icon { background-image: url('/images/icon_webcam_white_off.svg'); }
+					&:hover { background: $danger-hover; }
+				}
+			}
+
+			// ---- Share ----
+			&.share {
+				.btn-icon {
+					background-image: url('/images/icon_share_white_on.svg');
+				}
+
+				&.active {
+					background: $accent;
+					.btn-icon { filter: brightness(0.15); }
+					&:hover { background: $accent-hover; }
+				}
+			}
+
+			// ---- Chat ----
+			&.chat {
+				position: relative;
+
+				.btn-icon {
+					width: 22px;
+					height: 22px;
+					border: none;
+					background: none;
+					// Chat bubble SVG inline
+					border-radius: 0;
+				}
+
+				// Chat bubble drawn with CSS
+				&::after {
+					content: '';
+					width: 20px;
+					height: 18px;
+					border: 2px solid white;
+					border-radius: 4px 4px 4px 0;
+					position: absolute;
+				}
+
+				.btn-icon { display: none; }
+
+				&.active {
+					background: $accent;
+					&::after { border-color: $bg-primary; }
+					&:hover { background: $accent-hover; }
+				}
+
+				.badge {
+					position: absolute;
+					top: -4px;
+					right: -4px;
+					min-width: 18px;
+					height: 18px;
+					border-radius: $radius-full;
+					background: $danger;
+					color: white;
 					font-size: 10px;
+					font-weight: 700;
+					display: flex;
+					align-items: center;
+					justify-content: center;
+					padding: 0 4px;
+					animation: badge-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+				}
+			}
+
+			// ---- Record ----
+			&.record {
+				.btn-icon {
+					width: 18px;
+					height: 18px;
+					border-radius: $radius-full;
+					border: 2px solid $text-primary;
+					background: transparent !important;
+					transition: all 0.2s;
+				}
+
+				&.active {
+					background: $danger;
+					.btn-icon {
+						border-color: white;
+						background: white !important;
+						border-radius: 3px;
+						width: 12px;
+						height: 12px;
+					}
+					&:hover { background: $danger-hover; }
+				}
+			}
+
+			// ---- Hangup ----
+			&.hangup {
+				background: $danger;
+				width: 60px;
+				border-radius: $radius-xl;
+
+				.btn-icon {
+					background-image: url('/images/icon_leave_white_on.svg');
 				}
 
 				&:hover {
-					color: #fff;
-					text-decoration: underline;
+					background: $danger-hover;
+					transform: scale(1.05);
 				}
-			}
-		}
-	}
-
-	> .me-container {
-		position: fixed;
-		z-index: 100;
-		overflow: hidden;
-		box-shadow: 0px 5px 12px 2px rgba(#111, 0.5);
-		transition-property: border-color;
-		transition-duration: 0.2s;
-
-		&.active-speaker {
-			border-color: #fff;
-		}
-
-		@include desktop() {
-			height: 250px;
-			width: 294px;
-			bottom: 60px;
-			left: 20px;
-			border: 1px solid rgba(#fff, 0.15);
-		}
-
-		@include mobile() {
-			height: 220px;
-			width: 200px;
-			bottom: 50px;
-			left: 10px;
-			border: 1px solid rgba(#fff, 0.25);
-		}
-	}
-
-	> .chat-input-container {
-		position: fixed;
-		z-index: 100;
-		overflow: hidden;
-		box-shadow: 0px 5px 12px 2px rgba(#111, 0.5);
-
-		@include desktop() {
-			height: 30px;
-			width: 294px;
-			bottom: 20px;
-			left: 20px;
-			border: 1px solid rgba(#fff, 0.15);
-		}
-
-		@include mobile() {
-			height: 30px;
-			width: 200px;
-			bottom: 10px;
-			left: 10px;
-			border: 1px solid rgba(#fff, 0.25);
-		}
-	}
-
-	> .sidebar {
-		position: fixed;
-		z-index: 101;
-		top: calc(50% - 60px);
-		height: 120px;
-		display: flex;
-		flex-direction: column;
-		justify-content: center;
-		align-items: center;
-
-		@include desktop() {
-			left: 20px;
-			width: 36px;
-			margin-top: -60px;
-		}
-
-		@include mobile() {
-			left: 10px;
-			width: 32px;
-			margin-top: -80px;
-		}
-
-		> .button {
-			flex: 0 0 auto;
-			margin: 4px 0;
-			background-position: center;
-			background-size: 75%;
-			background-repeat: no-repeat;
-			background-color: $COLOR_BG_1;
-			cursor: pointer;
-			transition-property: opacity, background-color;
-			transition-duration: 0.2s;
-			border-radius: 100%;
-
-			@include desktop() {
-				height: 36px;
-				width: 36px;
-			}
-
-			@include mobile() {
-				height: 32px;
-				width: 32px;
-			}
-
-			&.on {
-				background-color: rgba(#fff, 0.7);
 			}
 
 			&.disabled {
+				opacity: 0.35;
 				pointer-events: none;
-				opacity: 0.5;
-				transition-duration: 0s;
-			}
-
-			&.hide-videos {
-				background-image: url('/images/icon_video_white_on.svg');
-
-				&.on {
-					background-image: url('/images/icon_video_black_off.svg');
-				}
-			}
-
-			&.mute-audio {
-				background-image: url('/images/icon_volume_white_on.svg');
-
-				&.on {
-					background-image: url('/images/icon_volume_black_off.svg');
-				}
-			}
-
-			&.restart-ice {
-				background-image: url('/images/icon_restart_ice_white.svg');
 			}
 		}
 	}
+
 }
 
-@keyframes Room-info-state-connecting {
-	50% {
-		background-color: rgba(orange, 0.75);
-	}
+// =========================================================================
+// KEYFRAMES
+// =========================================================================
+@keyframes pulse-fade {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.3; }
+}
+
+@keyframes slide-in-right {
+	from { transform: translateX(100%); opacity: 0; }
+	to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes badge-pop {
+	from { transform: scale(0); }
+	to { transform: scale(1); }
 }

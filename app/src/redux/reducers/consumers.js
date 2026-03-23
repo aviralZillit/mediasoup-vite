@@ -89,14 +89,13 @@ const consumers = (state = initialState, action) => {
 		}
 
 		case 'SET_CONSUMER_SCORE': {
-			const { consumerId, score } = action.payload;
-			const consumer = state[consumerId];
-
-			if (!consumer) return state;
-
-			const newConsumer = { ...consumer, score };
-
-			return { ...state, [consumerId]: newConsumer };
+			// Score updates are cosmetic — only shown in the technical info
+			// panel. They arrive every few seconds. We intentionally IGNORE
+			// them in Redux to avoid triggering re-render cascades that
+			// cause video flicker and audio disruption.
+			// The score is still available via the mediasoup consumer object
+			// directly if needed for the stats panel.
+			return state;
 		}
 
 		default: {

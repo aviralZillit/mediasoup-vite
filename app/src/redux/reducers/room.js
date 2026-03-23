@@ -7,6 +7,13 @@ const initialState = {
 	activeSpeakerId: null,
 	statsPeerId: null,
 	faceDetection: false,
+	recording: false,
+	recordingInProgress: false,
+	recordingComposing: false,
+	recordingOutputUrl: null,
+	chatOpen: false,
+	chatMessages: [],
+	chatUnread: 0,
 };
 
 const room = (state = initialState, action) => {
@@ -68,6 +75,30 @@ const room = (state = initialState, action) => {
 			return { ...state, faceDetection: flag };
 		}
 
+		case 'SET_RECORDING_STATE': {
+			const { recording } = action.payload;
+
+			return { ...state, recording };
+		}
+
+		case 'SET_RECORDING_IN_PROGRESS': {
+			const { flag } = action.payload;
+
+			return { ...state, recordingInProgress: flag };
+		}
+
+		case 'SET_RECORDING_COMPOSING': {
+			const { flag } = action.payload;
+
+			return { ...state, recordingComposing: flag };
+		}
+
+		case 'SET_RECORDING_READY': {
+			const { outputFile } = action.payload;
+
+			return { ...state, recordingComposing: false, recordingOutputUrl: outputFile };
+		}
+
 		case 'REMOVE_PEER': {
 			const { peerId } = action.payload;
 			const newState = { ...state };
@@ -78,6 +109,24 @@ const room = (state = initialState, action) => {
 			if (peerId && peerId === state.statsPeerId) newState.statsPeerId = null;
 
 			return newState;
+		}
+
+		case 'TOGGLE_CHAT_OPEN': {
+			const chatOpen = !state.chatOpen;
+
+			return {
+				...state,
+				chatOpen,
+				chatUnread: chatOpen ? 0 : state.chatUnread,
+			};
+		}
+
+		case 'ADD_CHAT_MESSAGE': {
+			const { message } = action.payload;
+			const chatMessages = [ ...state.chatMessages, message ];
+			const chatUnread = state.chatOpen ? 0 : state.chatUnread + 1;
+
+			return { ...state, chatMessages, chatUnread };
 		}
 
 		default: {
