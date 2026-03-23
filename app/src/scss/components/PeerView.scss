@@ -1,6 +1,6 @@
 [data-component='PeerView'] {
 	position: relative;
-	flex: 1 1 auto;
+	flex: 100 100 auto;
 	height: 100%;
 	width: 100%;
 	display: flex;
@@ -8,14 +8,15 @@
 	overflow: hidden;
 	background-color: $bg-secondary;
 	background-image: url('/images/buddy.svg');
-	background-position: center;
-	background-size: auto 50%;
+	background-position: bottom;
+	background-size: auto 85%;
 	background-repeat: no-repeat;
 
 	> .info {
 		$backgroundTint: #000;
 
 		position: absolute;
+		pointer-events: none;
 		z-index: 5;
 		top: 0;
 		bottom: 0;
