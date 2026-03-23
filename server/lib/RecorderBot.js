@@ -23,10 +23,10 @@ const FFMPEG_PATH = process.env.FFMPEG_PATH || 'ffmpeg';
 const RECORDING_BASE_DIR = process.env.RECORD_FILE_LOCATION_PATH ||
 	path.join(__dirname, '..', 'recordings');
 
-const CAPTURE_FPS = 15; // CDP screenshot FPS (15 is smooth enough, low CPU)
-const CAPTURE_WIDTH = 1920;
-const CAPTURE_HEIGHT = 1080;
-const JPEG_QUALITY = 80;
+const CAPTURE_FPS = parseInt(process.env.RECORDER_FPS, 10) || 15;
+const CAPTURE_WIDTH = parseInt(process.env.RECORDER_WIDTH, 10) || 1280;
+const CAPTURE_HEIGHT = parseInt(process.env.RECORDER_HEIGHT, 10) || 720;
+const JPEG_QUALITY = parseInt(process.env.RECORDER_QUALITY, 10) || 80;
 
 function _findChrome()
 {
