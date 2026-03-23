@@ -450,10 +450,6 @@ export default class PeerView extends React.Component {
 					className={classnames({
 						'is-me': isMe && !hideInfo,
 						hidden: !videoVisible || !videoCanPlay,
-						'network-error':
-							videoVisible &&
-							videoMultiLayer &&
-							consumerCurrentSpatialLayer === null,
 					})}
 					autoPlay
 					playsInline

@@ -1548,6 +1548,26 @@ class Room extends EventEmitter
 					catch (error) {}
 				}
 
+				// Cap the recorder bot's outgoing bitrate so it doesn't
+				// compete with real peers for bandwidth. The bot only needs
+				// enough to render video in headless Chrome for screenshots.
+				if (peer.id.startsWith('recorder-') && consuming)
+				{
+					try
+					{
+						await transport.setMaxOutgoingBitrate(2000000); // 2 Mbps
+
+						logger.info(
+							'Capped recorder bot transport outgoing bitrate [peerId:%s, maxOutgoing:2Mbps]',
+							peer.id);
+					}
+					catch (error)
+					{
+						logger.warn(
+							'Failed to cap recorder bot bitrate: %o', error);
+					}
+				}
+
 				break;
 			}
 
@@ -2567,6 +2587,32 @@ class Room extends EventEmitter
 						// and associate it.
 						await consumer.resume();
 
+						// For recorder bot consumers, force lowest simulcast layer.
+						// The bot captures via CDP screenshots at 15fps — it doesn't
+						// need high-res simulcast layers and consuming them would
+						// steal bandwidth from real human peers.
+						if (
+							consumerPeer.id.startsWith('recorder-') &&
+							consumer.kind === 'video' &&
+							consumer.type === 'simulcast'
+						)
+						{
+							try
+							{
+								await consumer.setPreferredLayers(
+									{ spatialLayer: 0, temporalLayer: 0 });
+
+								logger.info(
+									'Set recorder bot consumer to lowest layer [consumerId:%s, producerId:%s]',
+									consumer.id, producer.id);
+							}
+							catch (e)
+							{
+								logger.warn(
+									'Failed to set bot consumer layers: %o', e);
+							}
+						}
+
 						consumerPeer.notify(
 							'consumerScore',
 							{
@@ -2780,51 +2826,24 @@ class Room extends EventEmitter
 	 */
 	_monitorTransportHealth(transport, peer)
 	{
-		// Get transport stats
 		transport.getStats()
 			.then((stats) =>
 			{
 				for (const stat of stats)
 				{
-					if (stat.type === 'transport')
+					if (stat.type === 'transport' && stat.packetLossPercentage > 5)
 					{
-						const transportInfo = 
-						{
-							transportId     : transport.id,
-							peerId          : peer.id,
-							bytesReceived   : stat.bytesReceived || 0,
-							bytesSent       : stat.bytesSent || 0,
-							packetsReceived : stat.packetsReceived || 0,
-							packetsSent     : stat.packetsSent || 0,
-							timestamp       : Date.now()
-						};
-
-						// Update global data transfer metrics
-						this._analytics.dataTransferred.received += stat.bytesReceived || 0;
-						this._analytics.dataTransferred.sent += stat.bytesSent || 0;
-
-						// Check for transport issues
-						if (stat.packetLossPercentage > 5)
-						{
-							this._recordEvent('transport_high_packet_loss', 
-								{
-									transportId : transport.id,
-									peerId      : peer.id,
-									packetLoss  : stat.packetLossPercentage,
-									severity    : 'warning'
-								});
-						}
+						this._recordEvent('transport_high_packet_loss',
+							{
+								transportId : transport.id,
+								peerId      : peer.id,
+								packetLoss  : stat.packetLossPercentage,
+								severity    : 'warning'
+							});
 					}
 				}
 			})
-			.catch((error) =>
-			{
-				this._recordError('transport_stats_failed', error, 
-					{
-						transportId : transport.id,
-						peerId      : peer.id
-					});
-			});
+			.catch(() => {});
 	}
 
 	/**
@@ -2832,60 +2851,39 @@ class Room extends EventEmitter
 	 */
 	_monitorProducerHealth(producer, peer)
 	{
-		// Get producer stats
 		producer.getStats()
 			.then((stats) =>
 			{
 				for (const stat of stats)
 				{
-					if (stat.type === 'outbound-rtp')
+					if (stat.type !== 'outbound-rtp')
+						continue;
+
+					if (stat.packetsLost > 50)
 					{
-						const producerInfo = 
-						{
-							producerId  : producer.id,
-							peerId      : peer.id,
-							kind        : producer.kind,
-							packetsSent : stat.packetsSent || 0,
-							bytesSent   : stat.bytesSent || 0,
-							packetsLost : stat.packetsLost || 0,
-							nackCount   : stat.nackCount || 0,
-							timestamp   : Date.now()
-						};
+						this._recordEvent('producer_high_packet_loss',
+							{
+								producerId  : producer.id,
+								peerId      : peer.id,
+								kind        : producer.kind,
+								packetsLost : stat.packetsLost,
+								severity    : 'warning'
+							});
+					}
 
-						// Check for producer issues
-						if (stat.packetsLost > 50)
-						{
-							this._recordEvent('producer_high_packet_loss', 
-								{
-									producerId  : producer.id,
-									peerId      : peer.id,
-									kind        : producer.kind,
-									packetsLost : stat.packetsLost,
-									severity    : 'warning'
-								});
-						}
-
-						if (producer.kind === 'video' && stat.framesPerSecond < 15)
-						{
-							this._recordEvent('producer_low_framerate', 
-								{
-									producerId : producer.id,
-									peerId     : peer.id,
-									framerate  : stat.framesPerSecond,
-									severity   : 'warning'
-								});
-						}
+					if (producer.kind === 'video' && stat.framesPerSecond < 15)
+					{
+						this._recordEvent('producer_low_framerate',
+							{
+								producerId : producer.id,
+								peerId     : peer.id,
+								framerate  : stat.framesPerSecond,
+								severity   : 'warning'
+							});
 					}
 				}
 			})
-			.catch((error) =>
-			{
-				this._recordError('producer_stats_failed', error, 
-					{
-						producerId : producer.id,
-						peerId     : peer.id
-					});
-			});
+			.catch(() => {});
 	}
 
 	/**
@@ -2893,61 +2891,39 @@ class Room extends EventEmitter
 	 */
 	_monitorConsumerHealth(consumer, peer)
 	{
-		// Get consumer stats
 		consumer.getStats()
 			.then((stats) =>
 			{
 				for (const stat of stats)
 				{
-					if (stat.type === 'inbound-rtp')
+					if (stat.type !== 'inbound-rtp')
+						continue;
+
+					if (stat.packetsLost > 50)
 					{
-						const consumerInfo = 
-						{
-							consumerId      : consumer.id,
-							peerId          : peer.id,
-							kind            : consumer.kind,
-							packetsReceived : stat.packetsReceived || 0,
-							bytesReceived   : stat.bytesReceived || 0,
-							packetsLost     : stat.packetsLost || 0,
-							jitter          : stat.jitter || 0,
-							timestamp       : Date.now()
-						};
+						this._recordEvent('consumer_high_packet_loss',
+							{
+								consumerId  : consumer.id,
+								peerId      : peer.id,
+								kind        : consumer.kind,
+								packetsLost : stat.packetsLost,
+								severity    : 'warning'
+							});
+					}
 
-						// Check for consumer issues
-						if (stat.packetsLost > 50)
-						{
-							this._recordEvent('consumer_high_packet_loss', 
-								{
-									consumerId  : consumer.id,
-									peerId      : peer.id,
-									kind        : consumer.kind,
-									packetsLost : stat.packetsLost,
-									severity    : 'warning'
-								});
-						}
-
-						// Check audio quality issues
-						if (consumer.kind === 'audio' && stat.jitter > 0.1)
-						{
-							this._recordEvent('consumer_high_jitter', 
-								{
-									consumerId : consumer.id,
-									peerId     : peer.id,
-									jitter     : stat.jitter,
-									severity   : 'warning'
-								});
-						}
+					if (consumer.kind === 'audio' && stat.jitter > 0.1)
+					{
+						this._recordEvent('consumer_high_jitter',
+							{
+								consumerId : consumer.id,
+								peerId     : peer.id,
+								jitter     : stat.jitter,
+								severity   : 'warning'
+							});
 					}
 				}
 			})
-			.catch((error) =>
-			{
-				this._recordError('consumer_stats_failed', error, 
-					{
-						consumerId : consumer.id,
-						peerId     : peer.id
-					});
-			});
+			.catch(() => {});
 	}
 
 	/**
@@ -3025,11 +3001,10 @@ class Room extends EventEmitter
 
 		this._analytics.connectionEvents.push(event);
 
-		// Keep only recent events (memory optimized)
-		if (this._analytics.connectionEvents.length > this._maxConnectionEvents)
+		// Keep only recent events — splice in-place to avoid creating new arrays
+		while (this._analytics.connectionEvents.length > this._maxConnectionEvents)
 		{
-			this._analytics.connectionEvents = 
-				this._analytics.connectionEvents.slice(-this._maxConnectionEvents);
+			this._analytics.connectionEvents.shift();
 		}
 
 		// Only log important events to reduce log noise
@@ -3059,10 +3034,10 @@ class Room extends EventEmitter
 
 		this._analytics.errors.push(errorEvent);
 
-		// Keep only recent errors (memory optimized)
-		if (this._analytics.errors.length > this._maxErrors)
+		// Keep only recent errors — shift in-place to avoid creating new arrays
+		while (this._analytics.errors.length > this._maxErrors)
 		{
-			this._analytics.errors = this._analytics.errors.slice(-this._maxErrors);
+			this._analytics.errors.shift();
 		}
 
 		logger.error('Error recorded [roomId:%s, type:%s, error:%s, context:%o]', 
@@ -3148,23 +3123,16 @@ class Room extends EventEmitter
 	 */
 	_cleanupAnalyticsMemory()
 	{
-		const now = Date.now();
-		const oldEventThreshold = now - (3600000); // 1 hour ago
+		// Trim arrays in-place — they're already capped by push/shift,
+		// so just enforce max length as a safety net.
+		while (this._analytics.connectionEvents.length > this._maxConnectionEvents)
+			this._analytics.connectionEvents.shift();
 
-		// Clean old connection events
-		this._analytics.connectionEvents = this._analytics.connectionEvents
-			.filter((event) => event.timestamp > oldEventThreshold)
-			.slice(-this._maxConnectionEvents);
+		while (this._analytics.errors.length > this._maxErrors)
+			this._analytics.errors.shift();
 
-		// Clean old errors  
-		this._analytics.errors = this._analytics.errors
-			.filter((error) => error.timestamp > oldEventThreshold)
-			.slice(-this._maxErrors);
-
-		// Clean old peer events
-		this._analytics.peerEvents = this._analytics.peerEvents
-			.filter((event) => event.timestamp > oldEventThreshold)
-			.slice(-this._maxPeerEvents);
+		while (this._analytics.peerEvents.length > this._maxPeerEvents)
+			this._analytics.peerEvents.shift();
 
 		// Clean up connection quality for disconnected peers
 		const activePeerIds = new Set();

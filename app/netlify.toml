@@ -4,7 +4,6 @@
   publish = "dist"
 
 [build.environment]
-  VITE_NODE_ENV = "dev"
   NODE_VERSION = "18"
 
 # SPA routing — all routes serve index.html

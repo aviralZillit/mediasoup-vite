@@ -312,9 +312,6 @@
 			z-index: 0;
 		}
 
-		// network-error class removed — the grayscale+blur effect was
-		// triggering during normal layer negotiation and getting stuck
-		// because Peer memo comparator no longer re-renders on layer changes.
 	}
 
 	> audio {

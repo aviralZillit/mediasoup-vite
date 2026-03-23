@@ -228,7 +228,7 @@ export default class RoomClient
 		}
 	}
 
-	close() 
+	close()
 {
 		if (this._closed) return;
 
@@ -245,6 +245,9 @@ export default class RoomClient
 		if (this._recvTransport) this._recvTransport.close();
 
 		store.dispatch(stateActions.setRoomState('closed'));
+
+		// Navigate back to a clean state by removing query params.
+		window.location.href = window.location.origin + window.location.pathname;
 	}
 
 	async join() 

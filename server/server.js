@@ -122,7 +122,12 @@ async function run()
 		}
 	}, 120000);
 
-	// Memory monitoring and cleanup (ultra-aggressive)
+	// Memory monitoring and cleanup
+	if (!global.gc)
+	{
+		logger.warn('global.gc() is not available. Start node with --expose-gc to enable manual GC');
+	}
+
 	setInterval(() =>
 	{
 		const memUsage = process.memoryUsage();
@@ -132,18 +137,12 @@ async function run()
 
 		logger.info('Memory usage: %d MB / %d MB (%d%%)', heapUsedMB, heapTotalMB, heapPercent);
 
-		// More aggressive garbage collection trigger
-		if (heapPercent > 70) // Reduced from 85% to 70%
+		if (heapPercent > 70 && global.gc)
 		{
 			logger.warn('High memory usage detected (%d%%), forcing GC', heapPercent);
-			
-			if (global.gc)
-			{
-				global.gc();
-				logger.info('Manual garbage collection triggered at %d%% usage', heapPercent);
-			}
+			global.gc();
 		}
-	}, 90000); // Check every 1.5 minutes (less frequent monitoring)
+	}, 90000);
 }
 
 /**
