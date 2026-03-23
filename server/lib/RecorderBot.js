@@ -159,6 +159,42 @@ class RecorderBot
 		// 5) Start video capture via CDP screenshots → FFmpeg.
 		await this._startVideoCapture();
 
+		// Log what the bot sees periodically for debugging.
+		this._debugInterval = setInterval(async () =>
+		{
+			if (!this._page) return;
+
+			try
+			{
+				const info = await this._page.evaluate(() =>
+				{
+					const videos = document.querySelectorAll('video');
+					const peers = document.querySelectorAll('[data-component="Peer"]');
+					const peerViews = document.querySelectorAll('[data-component="PeerView"]');
+
+					return {
+						peers     : peers.length,
+						peerViews : peerViews.length,
+						videos    : Array.from(videos).map((v) => ({
+							w     : v.videoWidth,
+							h     : v.videoHeight,
+							ready : v.readyState,
+							src   : !!v.srcObject,
+						})),
+					};
+				});
+
+				logger.info(
+					'Bot DOM [peers:%d, views:%d, videos:%d: %s]',
+					info.peers, info.peerViews, info.videos.length,
+					info.videos.map((v) => `${v.w}x${v.h}/r${v.ready}`).join(', '));
+			}
+			catch (e)
+			{
+				// Page might be closed.
+			}
+		}, 5000);
+
 		logger.info('Recording started [roomId:%s, fps:%d]',
 			this._roomId, CAPTURE_FPS);
 	}
@@ -174,6 +210,12 @@ class RecorderBot
 
 		logger.info('stop() [roomId:%s, frames:%d]', this._roomId, this._frameCount);
 		this._active = false;
+
+		if (this._debugInterval)
+		{
+			clearInterval(this._debugInterval);
+			this._debugInterval = null;
+		}
 
 		try
 		{
