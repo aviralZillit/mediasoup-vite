@@ -881,6 +881,32 @@ export default class RoomClient
 					break;
 				}
 
+				case 'chatMessage': {
+					const { displayName, message, timestamp } = notification.data;
+
+					store.dispatch(
+						stateActions.addChatMessage({
+							sender    : displayName || 'System',
+							text      : message,
+							timestamp : timestamp || Date.now(),
+							isMe      : false,
+						})
+					);
+
+					// Show toast if chat is closed.
+					if (!store.getState().room.chatOpen)
+					{
+						store.dispatch(
+							requestActions.notify({
+								type : 'info',
+								text : `${displayName}: ${message.substring(0, 80)}`
+							})
+						);
+					}
+
+					break;
+				}
+
 				case 'recordingInitiatorChanged': {
 					const { displayName } = notification.data;
 

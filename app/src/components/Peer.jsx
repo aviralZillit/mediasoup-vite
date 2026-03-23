@@ -103,12 +103,14 @@ const Peer = React.memo(props => {
 		(prevAudio?.track) === (nextAudio?.track) &&
 		(prevAudio?.locallyPaused) === (nextAudio?.locallyPaused) &&
 		(prevAudio?.remotelyPaused) === (nextAudio?.remotelyPaused) &&
-		// Video consumer: track, paused state, layers
+		// Video consumer: track + paused state ONLY.
+		// Do NOT compare currentSpatialLayer, type, score, etc. —
+		// they change every ~5s during BWE cycles and cause video
+		// element re-render flicker. The layer switch happens at
+		// the WebRTC level seamlessly without needing React re-render.
 		(prevVideo?.track) === (nextVideo?.track) &&
 		(prevVideo?.locallyPaused) === (nextVideo?.locallyPaused) &&
 		(prevVideo?.remotelyPaused) === (nextVideo?.remotelyPaused) &&
-		(prevVideo?.currentSpatialLayer) === (nextVideo?.currentSpatialLayer) &&
-		(prevVideo?.type) === (nextVideo?.type) &&
 		// Consumer presence (added/removed)
 		Boolean(prevAudio) === Boolean(nextAudio) &&
 		Boolean(prevVideo) === Boolean(nextVideo)

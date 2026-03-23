@@ -9,9 +9,8 @@ const Logger = require('./Logger');
 const utils = require('./utils');
 const config = require('../config');
 const Bot = require('./Bot');
-const Recording = require('./Recording');
-const Composer = require('./Composer');
 const RecorderBot = require('./RecorderBot');
+const S3Uploader = require('./S3Uploader');
 
 const CallRepo = require('../repositories/MediasoupCalls');
 const logger = new Logger('Room');
@@ -223,24 +222,19 @@ class Room extends EventEmitter
 		{
 			if (this._recording.active)
 			{
-				// RecorderBot has .stop(), old Recording has .stopCapture().
-				if (typeof this._recording.stop === 'function')
-				{
-					this._recording.stop()
-						.catch((error) =>
+				this._recording.stop()
+					.then((outputFile) =>
+					{
+						if (outputFile)
 						{
-							logger.error('Failed to stop bot on room close: %o', error);
-						});
-				}
-				else if (typeof this._recording.stopCapture === 'function')
-				{
-					this._recording.stopCapture()
-						.then(() => this._runComposition(this._recording))
-						.catch((error) =>
-						{
-							logger.error('Failed to stop/compose on room close: %o', error);
-						});
-				}
+							this._uploadToS3(
+								outputFile, this._roomId, this._recording.roomDir);
+						}
+					})
+					.catch((error) =>
+					{
+						logger.error('Failed to stop bot on room close: %o', error);
+					});
 			}
 			else if (typeof this._recording.close === 'function')
 			{
@@ -451,30 +445,27 @@ class Room extends EventEmitter
 
 						try
 						{
-							if (typeof this._recording.stop === 'function')
-							{
-								// RecorderBot — stop() produces the final MP4.
-								const outputFile = await this._recording.stop();
+							const outputFile = await this._recording.stop();
 
-								if (outputFile)
-								{
-									logger.info(
-										'Bot recording saved [output:%s]', outputFile);
-								}
-							}
-							else if (typeof this._recording.stopCapture === 'function')
+							if (outputFile)
 							{
-								// Old Recording — stopCapture + compose.
-								await this._recording.stopCapture();
-								this._runComposition(this._recording);
+								logger.info(
+									'Bot recording saved [output:%s]', outputFile);
+
+								this._uploadToS3(
+									outputFile, this._roomId,
+									this._recording.roomDir);
 							}
 						}
 						catch (error)
 						{
 							logger.error('Failed to stop recording on peer leave: %o', error);
 
-							if (typeof this._recording.close === 'function')
+							if (this._recording &&
+								typeof this._recording.close === 'function')
+							{
 								this._recording.close();
+							}
 						}
 
 						this._recording = null;
@@ -1164,67 +1155,65 @@ class Room extends EventEmitter
 	/**
 	 * Run composition in the background and notify peers when done.
 	 */
-	_runComposition(recording)
+	/**
+	 * Upload a recording MP4 to S3 and notify peers.
+	 * Runs in the background via setImmediate.
+	 *
+	 * @param {String} outputFile - Local path to the MP4.
+	 * @param {String} roomId     - Room ID for S3 folder structure.
+	 * @param {String} roomDir    - Local room directory (for cleanup).
+	 */
+	_uploadToS3(outputFile, roomId, roomDir)
 	{
 		setImmediate(async () =>
 		{
 			try
 			{
-				const composer = new Composer(
-					{
-						roomDir         : recording.roomDir,
-						rawDir          : recording.rawDir,
-						roomId          : recording.roomId,
-						roomName        : recording.roomName,
-						globalStartTime : recording.globalStartTime,
-						metadata        : recording.metadata,
-						timeline        : recording.timeline,
-					});
+				const { s3Key, presignedUrl } =
+					await S3Uploader.uploadRecording(outputFile, roomId);
 
-				const outputFile = await composer.compose();
+				logger.info(
+					'Recording uploaded to S3 [roomId:%s, key:%s]',
+					roomId, s3Key);
 
-				if (outputFile)
-				{
-					logger.info(
-						'Composition complete [roomId:%s, output:%s]',
-						recording.roomId, outputFile);
-
-					// Notify all joined peers that the recording is ready.
-					for (const peer of this._getJoinedPeers())
-					{
-						peer.notify(
-							'recordingReady',
-							{ outputFile }).catch(() => {});
-					}
-				}
-				else
-				{
-					logger.warn(
-						'Composition returned no output [roomId:%s]',
-						recording.roomId);
-
-					// Notify peers so the "Processing..." state clears.
-					for (const peer of this._getJoinedPeers())
-					{
-						peer.notify(
-							'recordingReady',
-							{ outputFile: null, error: 'Recording too short or no valid media' })
-							.catch(() => {});
-					}
-				}
-			}
-			catch (error)
-			{
-				logger.error('Composition failed [roomId:%s]: %o',
-					recording.roomId, error);
-
-				// Notify peers so the "Processing..." state clears.
+				// Notify all joined peers with the download URL.
 				for (const peer of this._getJoinedPeers())
 				{
 					peer.notify(
 						'recordingReady',
-						{ outputFile: null, error: 'Composition failed' })
-						.catch(() => {});
+						{
+							outputFile : presignedUrl,
+							s3Key,
+						}).catch(() => {});
+
+					// Send recording link as a chat message to all peers.
+					peer.notify(
+						'chatMessage',
+						{
+							peerId      : 'system',
+							displayName : 'Recording Bot',
+							message     : `📹 Recording is ready! Download: ${presignedUrl}`,
+							timestamp   : Date.now(),
+						}).catch(() => {});
+				}
+
+				// Clean up local files.
+				S3Uploader.cleanupLocal(roomDir, outputFile);
+			}
+			catch (error)
+			{
+				logger.error('S3 upload failed [roomId:%s]: %o',
+					roomId, error);
+
+				// Still notify peers with the local path as fallback.
+				for (const peer of this._getJoinedPeers())
+				{
+					peer.notify(
+						'recordingReady',
+						{
+							outputFile,
+							error : 'S3 upload failed, recording saved locally',
+						}).catch(() => {});
 				}
 			}
 		});
@@ -1688,8 +1677,10 @@ class Room extends EventEmitter
 						.catch(() => {});
 				}
 
-				// If recording is active, add this producer to the recording.
-				if (this._recording && this._recording.active)
+				// If SFU recording is active, add this producer.
+				// RecorderBot doesn't need this — it captures the rendered page.
+				if (this._recording && this._recording.active &&
+					typeof this._recording.addProducer === 'function')
 				{
 					this._recording.addProducer(producer, peer)
 						.catch((error) =>
@@ -1714,8 +1705,10 @@ class Room extends EventEmitter
 				if (!producer)
 					throw new Error(`producer with id "${producerId}" not found`);
 
-				// If recording is active, remove this producer from the recording.
-				if (this._recording && this._recording.active)
+				// If SFU recording is active, remove this producer.
+				// RecorderBot doesn't need this — it captures the rendered page.
+				if (this._recording && this._recording.active &&
+					typeof this._recording.removeProducer === 'function')
 				{
 					this._recording.removeProducer(producerId)
 						.catch((error) =>
@@ -2272,8 +2265,8 @@ class Room extends EventEmitter
 						'stopRecording() | stopping bot [roomId:%s]',
 						this._roomId);
 
-					// Stop the bot (saves WebM → converts to MP4).
-					// This runs in the background.
+					// Stop the bot → get MP4 → upload to S3.
+					// Runs in background so user gets instant response.
 					setImmediate(async () =>
 					{
 						try
@@ -2286,11 +2279,9 @@ class Room extends EventEmitter
 									'Bot recording complete [roomId:%s, output:%s]',
 									this._roomId, outputFile);
 
-								for (const p of this._getJoinedPeers())
-								{
-									p.notify('recordingReady', { outputFile })
-										.catch(() => {});
-								}
+								// Upload to S3 (also notifies peers when done).
+								this._uploadToS3(
+									outputFile, this._roomId, recording.roomDir);
 							}
 							else
 							{

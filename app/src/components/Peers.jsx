@@ -169,6 +169,7 @@ const mapStateToProps = state => {
 			if (
 				consumer &&
 				consumer.track?.kind === 'video' &&
+				consumer.track?.readyState !== 'ended' &&
 				consumer.appData?.share
 			) {
 				screenShareConsumer = consumer;
@@ -182,7 +183,7 @@ const mapStateToProps = state => {
 
 	const producersArray = Object.values(state.producers);
 	const localShareProducer = producersArray.find(
-		p => p.track?.kind === 'video' && p.type === 'share'
+		p => p.track?.kind === 'video' && p.track?.readyState !== 'ended' && p.type === 'share'
 	) || null;
 
 	return {
