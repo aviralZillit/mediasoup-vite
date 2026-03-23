@@ -27,10 +27,22 @@ const PRESIGNED_EXPIRY = 24 * 60 * 60; // 24 hours in seconds
 
 // Read directly from process.env — config.js is gitignored and may
 // not have the aws block on deployed servers.
+// Read at module load time — dotenv should have already run in server.js.
 const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
 const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET || 'mediasoup-recordings';
-const AWS_ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID;
-const AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY;
+
+// Log for debugging credential issues.
+const _keyId = process.env.AWS_ACCESS_KEY_ID;
+const _secret = process.env.AWS_SECRET_ACCESS_KEY;
+
+if (_keyId)
+{
+	logger.info('AWS credentials found [keyId:%s***]', _keyId.slice(0, 8));
+}
+else
+{
+	logger.warn('AWS_ACCESS_KEY_ID not set — S3 uploads will fail');
+}
 
 let _s3Client = null;
 
@@ -38,18 +50,27 @@ function _getS3Client()
 {
 	if (!_s3Client)
 	{
-		const clientConfig = { region: AWS_REGION };
+		// Read credentials at call time (not module load time) to ensure
+		// dotenv has had a chance to populate process.env.
+		const keyId = process.env.AWS_ACCESS_KEY_ID;
+		const secret = process.env.AWS_SECRET_ACCESS_KEY;
+		const region = process.env.AWS_REGION || 'us-east-1';
 
-		// Explicitly pass credentials if set in env.
-		// On EC2 with IAM role, these aren't needed — SDK auto-discovers.
-		// But PM2 doesn't always propagate env vars to the SDK's default
-		// credential chain, so explicit is safer.
-		if (AWS_ACCESS_KEY_ID && AWS_SECRET_ACCESS_KEY)
+		const clientConfig = { region };
+
+		if (keyId && secret)
 		{
+			logger.info('Using explicit AWS credentials [keyId:%s***]',
+				keyId.slice(0, 8));
+
 			clientConfig.credentials = {
-				accessKeyId     : AWS_ACCESS_KEY_ID,
-				secretAccessKey : AWS_SECRET_ACCESS_KEY,
+				accessKeyId     : keyId,
+				secretAccessKey : secret,
 			};
+		}
+		else
+		{
+			logger.warn('No explicit AWS credentials — relying on SDK default chain');
 		}
 
 		_s3Client = new S3Client(clientConfig);
