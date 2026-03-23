@@ -29,6 +29,8 @@ const PRESIGNED_EXPIRY = 24 * 60 * 60; // 24 hours in seconds
 // not have the aws block on deployed servers.
 const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
 const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET || 'mediasoup-recordings';
+const AWS_ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID;
+const AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY;
 
 let _s3Client = null;
 
@@ -36,9 +38,21 @@ function _getS3Client()
 {
 	if (!_s3Client)
 	{
-		_s3Client = new S3Client({
-			region : AWS_REGION,
-		});
+		const clientConfig = { region: AWS_REGION };
+
+		// Explicitly pass credentials if set in env.
+		// On EC2 with IAM role, these aren't needed — SDK auto-discovers.
+		// But PM2 doesn't always propagate env vars to the SDK's default
+		// credential chain, so explicit is safer.
+		if (AWS_ACCESS_KEY_ID && AWS_SECRET_ACCESS_KEY)
+		{
+			clientConfig.credentials = {
+				accessKeyId     : AWS_ACCESS_KEY_ID,
+				secretAccessKey : AWS_SECRET_ACCESS_KEY,
+			};
+		}
+
+		_s3Client = new S3Client(clientConfig);
 	}
 
 	return _s3Client;
