@@ -292,7 +292,12 @@
 		user-select: none;
 		transition-property: opacity;
 		transition-duration: 0.5s;
-		background-color: rgba(#000, 0.75);
+		// Solid black background prevents buddy.svg from bleeding through.
+		background-color: #000;
+		// When video is visible, it sits on top of the buddy.svg background.
+		// z-index ensures video covers the parent's background-image.
+		position: relative;
+		z-index: 1;
 
 		&.is-me {
 			transform: scaleX(-1);
@@ -301,6 +306,10 @@
 		&.hidden {
 			opacity: 0;
 			transition-duration: 0s;
+			// Don't just fade out — actually hide so buddy.svg doesn't
+			// show through the transparent video element.
+			pointer-events: none;
+			z-index: 0;
 		}
 
 		&.network-error {
