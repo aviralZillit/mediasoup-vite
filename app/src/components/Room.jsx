@@ -28,6 +28,11 @@ class Room extends React.Component {
 		this._recordingTimer = null;
 		this._recordingStartTime = null;
 		this._hideTimer = null;
+
+		// Self-view drag state.
+		this._selfViewRef = React.createRef();
+		this._svDragging = false;
+		this._svOffset = { x: 0, y: 0 };
 		this._handleMouseMove = this._handleMouseMove.bind(this);
 	}
 
@@ -135,9 +140,16 @@ class Room extends React.Component {
 							<Peers />
 
 							{/* Self-view PIP */}
-							<div className={classnames('self-view', {
-								'active-speaker': amActiveSpeaker,
-							})}>
+							<div
+								ref={this._selfViewRef}
+								className={classnames('self-view', {
+									'active-speaker': amActiveSpeaker,
+								})}
+								style={{ cursor: 'grab', touchAction: 'none' }}
+								onPointerDown={this._onSelfViewPointerDown}
+								onPointerMove={this._onSelfViewPointerMove}
+								onPointerUp={this._onSelfViewPointerUp}
+							>
 								<Me />
 							</div>
 						</div>
@@ -329,6 +341,82 @@ class Room extends React.Component {
 			? `${pad(h)}:${pad(m)}:${pad(s)}`
 			: `${pad(m)}:${pad(s)}`;
 	}
+
+	// ---- Self-view PIP drag handlers ----
+
+	_onSelfViewPointerDown = (e) => {
+		if (e.button && e.button !== 0) return;
+
+		const node = this._selfViewRef.current;
+
+		if (!node) return;
+
+		const rect = node.getBoundingClientRect();
+
+		this._svDragging = true;
+		this._svOffset = {
+			x : e.clientX - rect.left,
+			y : e.clientY - rect.top,
+		};
+
+		node.setPointerCapture(e.pointerId);
+		node.style.transition = 'none';
+		e.preventDefault();
+	};
+
+	_onSelfViewPointerMove = (e) => {
+		if (!this._svDragging) return;
+
+		const node = this._selfViewRef.current;
+
+		if (!node) return;
+
+		const vw = window.innerWidth;
+		const vh = window.innerHeight;
+		const rect = node.getBoundingClientRect();
+
+		let x = e.clientX - this._svOffset.x;
+		let y = e.clientY - this._svOffset.y;
+
+		x = Math.max(8, Math.min(x, vw - rect.width - 8));
+		y = Math.max(8, Math.min(y, vh - rect.height - 8));
+
+		node.style.left = `${x}px`;
+		node.style.top = `${y}px`;
+		node.style.right = 'auto';
+		node.style.bottom = 'auto';
+	};
+
+	_onSelfViewPointerUp = (e) => {
+		if (!this._svDragging) return;
+
+		this._svDragging = false;
+
+		const node = this._selfViewRef.current;
+
+		if (!node) return;
+
+		node.releasePointerCapture(e.pointerId);
+
+		// Snap to nearest corner.
+		const vw = window.innerWidth;
+		const vh = window.innerHeight;
+		const rect = node.getBoundingClientRect();
+		const cx = rect.left + rect.width / 2;
+		const cy = rect.top + rect.height / 2;
+		const margin = 16;
+
+		const snapX = cx < vw / 2
+			? margin
+			: vw - rect.width - margin;
+		const snapY = cy < vh / 2
+			? margin
+			: vh - rect.height - margin;
+
+		node.style.transition = 'left 0.3s ease, top 0.3s ease';
+		node.style.left = `${snapX}px`;
+		node.style.top = `${snapY}px`;
+	};
 }
 
 Room.propTypes = {
