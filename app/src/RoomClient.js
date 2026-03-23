@@ -1216,36 +1216,36 @@ export default class RoomClient
 {
 					encodings = [
 						{
-							maxBitrate      : 5000000,
+							maxBitrate      : 1500000,
 							scalabilityMode : this._webcamScalabilityMode || 'L3T3_KEY'
 						}
 					];
 				}
 				// VP8 or H264 with simulcast.
-				else 
+				else
 {
 					encodings = [
 						{
 							scaleResolutionDownBy : 1,
-							maxBitrate            : 5000000,
+							maxBitrate            : 1500000,
 							scalabilityMode       : this._webcamScalabilityMode || 'L1T3'
 						}
 					];
 
-					if (this._numSimulcastStreams > 1) 
+					if (this._numSimulcastStreams > 1)
 {
 						encodings.unshift({
 							scaleResolutionDownBy : 2,
-							maxBitrate            : 1000000,
+							maxBitrate            : 500000,
 							scalabilityMode       : this._webcamScalabilityMode || 'L1T3'
 						});
 					}
 
-					if (this._numSimulcastStreams > 2) 
+					if (this._numSimulcastStreams > 2)
 {
 						encodings.unshift({
 							scaleResolutionDownBy : 4,
-							maxBitrate            : 500000,
+							maxBitrate            : 150000,
 							scalabilityMode       : this._webcamScalabilityMode || 'L1T3'
 						});
 					}
